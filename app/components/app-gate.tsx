@@ -56,36 +56,59 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
             value={draft.baseUrl}
           />
         </label>
-        <label>
-          <span>视觉模型</span>
-          <input
-            onChange={(event) => updateField("visionModel", event.target.value)}
-            value={draft.visionModel}
-          />
-        </label>
-        <label>
-          <span>Realtime 模型</span>
-          <input
-            onChange={(event) => updateField("realtimeModel", event.target.value)}
-            value={draft.realtimeModel}
-          />
-        </label>
-        <label>
-          <span>Realtime 声音</span>
-          <input
-            onChange={(event) => updateField("realtimeVoice", event.target.value)}
-            value={draft.realtimeVoice}
-          />
-        </label>
-        <label>
-          <span>语音转写模型</span>
-          <input
-            onChange={(event) =>
-              updateField("realtimeTranscriptionModel", event.target.value)
-            }
-            value={draft.realtimeTranscriptionModel}
-          />
-        </label>
+        {mode === "panel" ? (
+          <>
+            <label>
+              <span>语音模式</span>
+              <select
+                onChange={(event) =>
+                  updateField("voiceMode", event.target.value)
+                }
+                value={draft.voiceMode}
+              >
+                <option value="pipeline">语音流水线</option>
+                <option value="realtime">OpenAI Realtime</option>
+              </select>
+            </label>
+            <label>
+              <span>视觉模型</span>
+              <input
+                onChange={(event) => updateField("visionModel", event.target.value)}
+                value={draft.visionModel}
+              />
+            </label>
+            <label>
+              <span>聊天模型</span>
+              <input
+                onChange={(event) => updateField("chatModel", event.target.value)}
+                value={draft.chatModel}
+              />
+            </label>
+            <label>
+              <span>Realtime 模型</span>
+              <input
+                onChange={(event) => updateField("realtimeModel", event.target.value)}
+                value={draft.realtimeModel}
+              />
+            </label>
+            <label>
+              <span>Realtime 声音</span>
+              <input
+                onChange={(event) => updateField("realtimeVoice", event.target.value)}
+                value={draft.realtimeVoice}
+              />
+            </label>
+            <label>
+              <span>语音转写模型</span>
+              <input
+                onChange={(event) =>
+                  updateField("realtimeTranscriptionModel", event.target.value)
+                }
+                value={draft.realtimeTranscriptionModel}
+              />
+            </label>
+          </>
+        ) : null}
       </div>
 
       <div className="config-actions">
