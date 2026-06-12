@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { checkRateLimit, rateLimitResponse } from "../../../lib/rate-limit";
 
 type OpenAIRealtimeClientSecretResponse = {
   client_secret?: {
@@ -61,6 +62,16 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const rateLimit = checkRateLimit(request, {
+    namespace: "realtime-session",
+    maxRequests: 12,
+    windowMs: 60 * 60 * 1000,
+  });
+
+  if (!rateLimit.allowed) {
+    return rateLimitResponse(rateLimit);
+  }
+
   const model = getRealtimeModel();
   const voice = getRealtimeVoice();
   const transcriptionModel = getRealtimeTranscriptionModel();
@@ -74,6 +85,7 @@ export async function POST(request: NextRequest) {
         "你会通过实时语音与用户自然对话，并根据后续注入的视觉上下文回答问题。",
         "正式对话时请用简洁自然的中文回答，并在不确定时明确说明。",
         "如果用户插话或纠正你，请立即停止当前解释，优先回应用户最新输入。",
+        "为了控制延迟和成本，除非用户明确要求，否则每次回答不超过 3 句话。",
       ].join("\n"),
       audio: {
         input: {
