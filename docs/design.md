@@ -1,60 +1,158 @@
-# Design Document
+# 设计文档
 
-## 1. Product Goal
+## 1. 产品目标
 
-To be completed after the project idea is finalized.
+Audai 是一个 AI 视觉对话助手。用户授权摄像头和麦克风后，可以直接用语音询问当前画面，系统会结合实时语音、摄像头抽帧和多模态视觉分析给出自然回应。
 
-## 2. Planned User Stories
+项目重点不是持续上传视频流，而是用浏览器完成本地音视频采集，再把“实时语音”和“按需视觉抽帧”组合起来：
 
-| ID | User Story | Priority | Status |
+- 语音链路使用 Realtime WebRTC，保证低延迟、语音播放和插话打断。
+- 视觉链路使用摄像头本地预览、canvas 抽帧压缩和多模态模型分析。
+- 服务端 API Route 负责保护长期 API Key、创建临时 Realtime 凭据、调用视觉模型和执行请求限流。
+
+## 2. 计划实现的用户故事
+
+| ID | 用户故事 | 优先级 | 状态 |
 | --- | --- | --- | --- |
-| US-001 | As a user, I want to start a camera and microphone conversation with AI, so that I can ask questions about what is in front of me. | High | Planned |
+| US-001 | 用户可以打开摄像头和麦克风，看到本地画面预览。 | 高 | 已实现 |
+| US-002 | 用户可以通过按钮抽取当前摄像头画面，并让 AI 描述画面。 | 高 | 已实现 |
+| US-003 | 用户可以连接实时语音会话，用麦克风和 AI 对话。 | 高 | 已实现 |
+| US-004 | AI 回复时，用户可以插话打断当前回复。 | 高 | 已实现 |
+| US-005 | 用户用语音问“我面前有什么”时，系统可以结合当前画面回答。 | 高 | 已实现 |
+| US-006 | 用户可以看到语音转写、AI 回复状态、视觉上下文和成本指标。 | 中 | 已实现 |
+| US-007 | 系统需要限制高成本请求，避免重复调用视觉模型。 | 高 | 已实现 |
+| US-008 | 最终 README、设计文档和 demo 视频链接齐全，方便评委复现。 | 高 | 部分完成，demo 链接待补 |
 
-## 3. Implemented User Stories
+## 3. 最终实现的用户故事
 
-To be updated after implementation.
+已完成：
 
-## 4. Core Interaction Flow
+- 本地摄像头和麦克风采集。
+- 摄像头预览和麦克风输入电平展示。
+- 本地抽帧、缩放、压缩和抽帧结果展示。
+- `/api/vision` 多模态视觉分析。
+- `/api/realtime/session` Realtime 临时凭据创建。
+- WebRTC 麦克风音频发送和模型语音播放。
+- Realtime data channel 事件解析。
+- 用户语音转写和 AI 转写展示。
+- 用户插话时取消当前 AI 回复。
+- 语音视觉意图识别、视觉摘要缓存和 Realtime 上下文注入。
+- 视觉请求次数、缓存命中、图片体积和缓存窗口展示。
+- 视觉 API 和 Realtime session API 的请求限流。
 
-To be completed after the technical plan is finalized.
+待用户最终补充：
 
-## 5. Technical Architecture
+- demo 视频链接。
+- 配置真实 `OPENAI_API_KEY` 后的浏览器端效果确认。
 
-To be completed after the technical plan is finalized.
+## 4. 核心交互流程
 
-## 6. Visual Understanding Strategy
+1. 用户打开页面。
+2. 用户点击“开始”，浏览器请求摄像头和麦克风权限。
+3. 页面显示本地摄像头预览和麦克风电平。
+4. 用户点击“连接语音”，前端请求 `/api/realtime/session` 获取临时 client secret。
+5. 前端建立 WebRTC 连接，把麦克风 audio track 发送到 Realtime。
+6. 用户说话后，Realtime data channel 返回 VAD、转写和响应状态事件。
+7. 如果用户问题包含视觉意图，前端抽取当前摄像头画面并请求 `/api/vision`。
+8. 前端将视觉摘要和用户问题通过 data channel 注入 Realtime 会话。
+9. AI 通过语音回答，页面同步显示转写和状态。
+10. 如果用户在 AI 说话时插话，前端发送 `response.cancel`，停止当前回复。
 
-To be completed after model and capture strategy are selected.
+## 5. 技术架构
 
-## 7. Voice Interaction Strategy
+```text
+Browser
+  ├─ getUserMedia 摄像头/麦克风采集
+  ├─ video 本地预览
+  ├─ canvas 抽帧压缩
+  ├─ RTCPeerConnection 发送麦克风音频
+  ├─ audio 播放 Realtime 远端音频
+  └─ DataChannel 接收/发送 Realtime 事件
 
-To be completed after speech input/output strategy is selected.
+Next.js App Router
+  ├─ /api/vision
+  │   └─ 调用 OpenAI Responses API 分析压缩图片
+  └─ /api/realtime/session
+      └─ 调用 OpenAI Realtime client secrets API 创建临时凭据
 
-## 8. Cost-Control Ideas Considered
+OpenAI
+  ├─ Realtime API：语音输入、语音输出、VAD、转写、打断
+  └─ Responses API：摄像头抽帧图片理解
+```
 
-- Capture video frames at controlled intervals instead of streaming every frame to the cloud.
-- Send lower-resolution frames when full resolution is unnecessary.
-- Use voice activity detection to avoid transcribing silence.
-- Cache recent visual context and avoid repeated model calls for unchanged scenes.
-- Use local browser APIs where practical, such as camera capture, microphone capture, and speech synthesis.
-- Provide user-controlled capture and analysis modes.
+## 6. 视觉理解策略
 
-## 9. Cost-Control Techniques Adopted
+- 不上传连续视频流。
+- 用户点击“分析画面”时抽取当前帧。
+- 用户语音命中视觉意图时自动抽帧。
+- 抽帧使用 canvas 缩放，默认最大宽度 768px。
+- 图片优先压缩为 WebP，必要时回退 JPEG。
+- 视觉请求使用低细节输入，回答要求简洁具体。
+- 视觉摘要缓存 60 秒，连续追问优先复用缓存。
 
-- The browser keeps the camera preview local and does not upload a continuous video stream.
-- The app captures and uploads one compressed frame only when the user explicitly analyzes the screen or asks a visual question by voice.
-- Captured frames are resized locally to a maximum width of 768px before analysis.
-- Vision requests use low-detail image input, a capped question length, and a capped image data URL size.
-- Recent visual summaries are cached for 60 seconds so repeated follow-up questions can reuse context.
-- `/api/vision` limits each client fingerprint to 20 requests per hour.
-- `/api/realtime/session` limits each client fingerprint to 12 session creations per hour.
-- The Realtime system prompt asks the assistant to keep normal answers within three sentences.
-- The UI displays vision request count, cache hit count, and the latest compressed frame size for demo and debugging.
+## 7. 语音交互策略
 
-## 10. Known Limitations
+- 浏览器用 WebRTC 直接传输麦克风 audio track。
+- 服务端只创建临时 client secret，不接触浏览器音频流。
+- Realtime session 启用服务端 VAD。
+- Realtime session 启用中文语音转写。
+- data channel 用于同步用户说话、模型思考、AI 回复和错误状态。
+- AI 回复过程中用户插话时，前端发送 `response.cancel`。
+- AI 回复默认不超过 3 句话，降低延迟和 token 成本。
 
-To be updated before final submission.
+## 8. 想到的成本控制技巧
 
-## 11. Verification
+- 不持续上传视频，只在需要时抽帧。
+- 降低图片分辨率和质量。
+- 使用低细节视觉输入。
+- 缓存最近视觉摘要，避免静止画面重复分析。
+- 使用 VAD，避免静音时持续生成响应。
+- 使用临时 Realtime 凭据，避免前端暴露长期密钥。
+- 对高成本 API 做限流。
+- 控制回答长度，减少无效输出。
+- 在 UI 中显示请求次数和图片体积，方便调试成本。
 
-To be updated with actual test steps and demo evidence.
+## 9. 实际采用的成本控制技巧
+
+- 摄像头画面只在本地预览，不持续上传。
+- 视觉分析只上传压缩后的单帧图片。
+- 抽帧图片最大宽度 768px。
+- 图片 data URL 长度限制为 2,000,000。
+- 用户问题长度限制为 500 字符。
+- 视觉模型使用 `detail: low`。
+- 视觉摘要缓存 60 秒。
+- `/api/vision` 每客户端每小时最多 20 次请求。
+- `/api/realtime/session` 每客户端每小时最多 12 次请求。
+- Realtime 常规回答限制在 3 句话以内。
+- 前端成本面板展示视觉请求次数、缓存命中和最近图片体积。
+
+## 10. 已知限制
+
+- 真实语音和视觉效果需要配置有效 `OPENAI_API_KEY` 后在浏览器手动验证。
+- 视觉上下文注入依赖语音转写完成，极端情况下可能比模型第一句回答稍晚。
+- 当前视觉缓存基于时间窗口，没有实现图像相似度检测。
+- 当前限流使用单实例内存计数，生产多实例部署时应替换为 Redis 或托管 KV。
+- demo 视频链接需要最终录制后补到 README。
+
+## 11. 验证方式
+
+自动/命令验证：
+
+```bash
+npm run lint
+npm run typecheck
+npm run build
+npm audit
+npm run dev -- --port 3000
+curl -I http://localhost:3000
+```
+
+浏览器手动验证：
+
+1. 配置 `.env.local` 中的 `OPENAI_API_KEY`。
+2. 启动应用并授权摄像头、麦克风。
+3. 点击“分析画面”，确认能看到视觉结果。
+4. 点击“连接语音”，确认 Realtime 语音连接成功。
+5. 说“我面前有什么”，确认视觉上下文被注入并得到回答。
+6. 在 AI 回复时继续说话，确认当前回复可被打断。
+7. 观察成本面板中的视觉请求次数、缓存命中和图片体积。
