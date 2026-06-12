@@ -17,6 +17,10 @@ import {
   type CapturedFrame,
 } from "../lib/frame-capture";
 import { useLocalMedia, type MediaPermissionState } from "../lib/use-local-media";
+import {
+  useRealtimeAudio,
+  type RealtimeConnectionState,
+} from "../lib/use-realtime-audio";
 
 const sessionOrder: SessionState[] = [
   "idle",
@@ -112,6 +116,18 @@ function getMicrophoneStatus(
   return isMuted ? "已静音" : "本地采集中";
 }
 
+function getRealtimeStatus(connectionState: RealtimeConnectionState) {
+  const labels: Record<RealtimeConnectionState, string> = {
+    idle: "待连接",
+    connecting: "连接中",
+    connected: "已连接",
+    closed: "已关闭",
+    error: "连接异常",
+  };
+
+  return labels[connectionState];
+}
+
 function formatBytes(bytes: number) {
   if (bytes < 1024) {
     return `${bytes} B`;
@@ -136,6 +152,7 @@ export function ConversationWorkspace() {
   const [visionModel, setVisionModel] = useState<string | null>(null);
   const [isVisionLoading, setIsVisionLoading] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const {
     permissionState,
     stream,
@@ -146,12 +163,28 @@ export function ConversationWorkspace() {
     startMedia,
     stopMedia,
   } = useLocalMedia();
+  const {
+    connectionState,
+    errorMessage: realtimeError,
+    remoteStream,
+    model: realtimeModel,
+    voice: realtimeVoice,
+    events: realtimeEvents,
+    connect: connectRealtime,
+    disconnect: disconnectRealtime,
+  } = useRealtimeAudio();
 
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.srcObject = stream;
     }
   }, [stream]);
+
+  useEffect(() => {
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = remoteStream;
+    }
+  }, [remoteStream]);
 
   const statusItems = useMemo(
     () => [
@@ -160,7 +193,7 @@ export function ConversationWorkspace() {
         label: "麦克风",
         value: getMicrophoneStatus(permissionState, hasAudio, isMuted),
       },
-      { label: "实时会话", value: sessionLabels[sessionState] },
+      { label: "实时会话", value: getRealtimeStatus(connectionState) },
       {
         label: "视觉分析",
         value: isVisionLoading
@@ -177,7 +210,7 @@ export function ConversationWorkspace() {
       isVisionLoading,
       latestFrame,
       permissionState,
-      sessionState,
+      connectionState,
     ],
   );
 
@@ -237,10 +270,74 @@ export function ConversationWorkspace() {
   }
 
   function handleStop() {
+    disconnectRealtime();
     stopMedia();
     setIsMuted(false);
     setSessionState("idle");
     appendInteraction("idle", "stop");
+  }
+
+  async function handleConnectRealtime() {
+    if (!stream || !hasAudio) {
+      setSessionState("error");
+      setMessages((current) =>
+        [
+          ...current,
+          {
+            id: `realtime-no-audio-${Date.now()}`,
+            role: "system",
+            content: "请先开始本地麦克风采集，再连接实时语音。",
+            status: "complete",
+          } satisfies ChatMessage,
+        ].slice(-6),
+      );
+      return;
+    }
+
+    setSessionState("connecting");
+    setMessages((current) =>
+      [
+        ...current,
+        {
+          id: `realtime-connect-${Date.now()}`,
+          role: "system",
+          content: "正在创建 Realtime WebRTC 连接。",
+          status: "complete",
+        } satisfies ChatMessage,
+      ].slice(-6),
+    );
+
+    const result = await connectRealtime(stream);
+
+    if (!result.ok) {
+      const realtimeErrorMessage =
+        result.errorMessage ?? "Realtime WebRTC 连接失败。";
+      setSessionState("error");
+      setMessages((current) =>
+        [
+          ...current,
+          {
+            id: `realtime-error-${Date.now()}`,
+            role: "system",
+            content: realtimeErrorMessage,
+            status: "complete",
+          } satisfies ChatMessage,
+        ].slice(-6),
+      );
+      return;
+    }
+
+    setSessionState("listening");
+    setTimeline((current) =>
+      [
+        {
+          id: `realtime-connected-${Date.now()}`,
+          label: "Realtime",
+          detail: "WebRTC 音频连接已建立",
+        },
+        ...current,
+      ].slice(0, 5),
+    );
   }
 
   async function handleAnalyzeFrame() {
@@ -354,12 +451,13 @@ export function ConversationWorkspace() {
           <p className="eyebrow">Audai</p>
           <h1>AI 视觉对话助手</h1>
         </div>
-        <div className="build-tag">PR 4</div>
+        <div className="build-tag">PR 6</div>
       </header>
 
       <section className="workspace" aria-label="对话工作区">
         <div className="video-panel">
           <div className="video-frame">
+            <audio ref={remoteAudioRef} aria-label="Realtime 远端语音播放" autoPlay />
             <video
               ref={videoRef}
               aria-label="本地摄像头预览"
@@ -379,7 +477,7 @@ export function ConversationWorkspace() {
               </strong>
               <span>
                 {stream
-                  ? "摄像头与麦克风仅在浏览器本地采集，分析画面只做本地抽帧压缩。"
+                  ? "摄像头和麦克风在本地采集；连接语音后麦克风会通过 WebRTC 发送到 Realtime。"
                   : "点击开始后浏览器会请求摄像头和麦克风权限。"}
               </span>
               <div className="audio-meter" aria-label="麦克风输入电平">
@@ -402,6 +500,18 @@ export function ConversationWorkspace() {
               disabled={!hasAudio || sessionState === "idle" || sessionState === "error"}
             >
               {isMuted ? "取消静音" : "静音"}
+            </button>
+            <button
+              type="button"
+              onClick={handleConnectRealtime}
+              disabled={
+                !stream ||
+                !hasAudio ||
+                connectionState === "connecting" ||
+                connectionState === "connected"
+              }
+            >
+              {connectionState === "connected" ? "语音已连接" : "连接语音"}
             </button>
             <button
               type="button"
@@ -520,6 +630,36 @@ export function ConversationWorkspace() {
                 ? "正在分析本地压缩帧。"
                 : visionAnalysis ?? frameError ?? "分析画面后，这里会显示模型返回的视觉理解结果。"}
             </p>
+          </section>
+
+          <section className="realtime-panel" aria-label="实时语音连接">
+            <div className="frame-panel-header">
+              <strong>实时语音</strong>
+              <span>{getRealtimeStatus(connectionState)}</span>
+            </div>
+            <dl>
+              <div>
+                <dt>模型</dt>
+                <dd>{realtimeModel ?? "待连接"}</dd>
+              </div>
+              <div>
+                <dt>声音</dt>
+                <dd>{realtimeVoice ?? "待连接"}</dd>
+              </div>
+            </dl>
+            <p>
+              {realtimeError ??
+                (connectionState === "connected"
+                  ? "麦克风音频正在通过 WebRTC 发送，模型语音会自动播放。"
+                  : "开始本地采集后，可连接 Realtime 语音。")}
+            </p>
+            {realtimeEvents.length > 0 ? (
+              <ul>
+                {realtimeEvents.slice(0, 4).map((event) => (
+                  <li key={event.id}>{event.type}</li>
+                ))}
+              </ul>
+            ) : null}
           </section>
 
           <div className="timeline">
