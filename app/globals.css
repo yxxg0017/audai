@@ -120,6 +120,17 @@ button:disabled {
   line-height: 1.6;
 }
 
+.config-warning {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid rgb(217 119 6 / 32%);
+  border-radius: 8px;
+  background: rgb(217 119 6 / 10%);
+  color: var(--warn);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .config-form {
   display: flex;
   flex-direction: column;
