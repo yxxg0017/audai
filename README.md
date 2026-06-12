@@ -74,6 +74,15 @@ cp .env.example .env.local
 npm run dev
 ```
 
+视觉分析需要在 `.env.local` 中配置：
+
+```bash
+OPENAI_API_KEY=你的 OpenAI API Key
+OPENAI_VISION_MODEL=gpt-5.5
+```
+
+`OPENAI_API_KEY` 只会在服务端 API Route 中读取，不会暴露给浏览器。视觉分析默认使用低细节图片输入和较短输出，以控制调用成本。
+
 常用命令：
 
 ```bash
