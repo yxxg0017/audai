@@ -53,7 +53,7 @@
 - TypeScript
 - ESLint
 
-后续模块会继续接入 Vercel AI SDK、OpenAI Realtime/WebRTC 和多模态视觉分析能力。
+当前实现已接入 OpenAI Realtime/WebRTC 和多模态视觉分析能力。
 
 ## 第三方依赖与原创功能边界
 
@@ -71,7 +71,7 @@
 - 会话状态模型与 mock 交互流程。
 - 本地摄像头/麦克风采集、视觉抽帧压缩、视觉分析 API、Realtime WebRTC 语音连接、语音转写与打断控制。
 - 语音视觉上下文融合：检测用户语音中的视觉意图，按需抽取当前画面生成摘要，并注入 Realtime 对话。
-- 后续成本控制、最终文档和验收修复模块均在本仓库内分 PR 独立实现。
+- 成本控制、最终文档和验收修复模块均在本仓库内分 PR 独立实现。
 
 如后续引入 Vercel AI SDK、OpenAI SDK、WebRTC 示例代码或复用个人历史代码，必须在对应 PR 描述和 README 中说明来源、用途和原创实现边界。
 
@@ -173,7 +173,7 @@ npm run build
 1. 每个功能或修复创建独立分支。
 2. 每个 PR 只实现或修改一个清晰目标。
 3. commit 信息遵循 [.gitmessage](.gitmessage) 中的格式。
-4. PR 描述需要包含功能说明、实现思路和测试方式。
+4. PR 标题、PR 描述和 commit 说明使用中文，描述需要包含功能说明、实现思路和测试方式。
 5. 合并后 `main` 分支必须保持可运行状态。
 6. PR 不允许空描述，描述必须与实际变更一致。
 7. 所有 commit 时间戳必须落在所选批次开始与截止时间内。
@@ -197,10 +197,10 @@ type(scope): summary
 示例：
 
 ```text
-docs(readme): translate project overview to Chinese
-feat(camera): add camera preview capture
-feat(audio): stream microphone input to realtime session
-fix(turn): handle interruption during assistant response
+docs(readme): 补充最终演示与启动说明
+feat(camera): 增加摄像头预览采集
+feat(audio): 接入实时语音输入
+fix(turn): 修复回复打断状态
 ```
 
 ## 参考规则
