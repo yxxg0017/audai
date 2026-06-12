@@ -12,6 +12,10 @@ import {
   type SessionState,
   type TimelineEvent,
 } from "../lib/session-state";
+import {
+  captureCompressedFrame,
+  type CapturedFrame,
+} from "../lib/frame-capture";
 import { useLocalMedia, type MediaPermissionState } from "../lib/use-local-media";
 
 const sessionOrder: SessionState[] = [
@@ -100,11 +104,25 @@ function getMicrophoneStatus(
   return isMuted ? "已静音" : "本地采集中";
 }
 
+function formatBytes(bytes: number) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+}
+
 export function ConversationWorkspace() {
   const [sessionState, setSessionState] = useState<SessionState>("idle");
   const [isMuted, setIsMuted] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [timeline, setTimeline] = useState<TimelineEvent[]>(initialTimeline);
+  const [latestFrame, setLatestFrame] = useState<CapturedFrame | null>(null);
+  const [frameError, setFrameError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const {
     permissionState,
@@ -131,9 +149,12 @@ export function ConversationWorkspace() {
         value: getMicrophoneStatus(permissionState, hasAudio, isMuted),
       },
       { label: "实时会话", value: sessionLabels[sessionState] },
-      { label: "视觉分析", value: sessionState === "thinking" ? "模拟分析中" : "待触发" },
+      {
+        label: "视觉分析",
+        value: latestFrame ? `${latestFrame.width}x${latestFrame.height}` : "待抽帧",
+      },
     ],
-    [hasAudio, hasVideo, isMuted, permissionState, sessionState],
+    [hasAudio, hasVideo, isMuted, latestFrame, permissionState, sessionState],
   );
 
   const currentStep = sessionOrder.indexOf(sessionState);
@@ -198,6 +219,58 @@ export function ConversationWorkspace() {
     appendInteraction("idle", "stop");
   }
 
+  async function handleAnalyzeFrame() {
+    if (!videoRef.current || !stream || !hasVideo) {
+      setFrameError("请先开始摄像头采集，再分析画面。");
+      return;
+    }
+
+    setSessionState("thinking");
+    setFrameError(null);
+
+    try {
+      const frame = await captureCompressedFrame(videoRef.current);
+      setLatestFrame(frame);
+      setSessionState("listening");
+      setMessages((current) =>
+        [
+          ...current,
+          {
+            id: `frame-${Date.now()}`,
+            role: "user",
+            content: `已在本地抽取并压缩当前画面：${frame.width}x${frame.height}，${formatBytes(frame.sizeBytes)}。`,
+            status: "complete",
+          } satisfies ChatMessage,
+        ].slice(-6),
+      );
+      setTimeline((current) =>
+        [
+          {
+            id: `frame-timeline-${Date.now()}`,
+            label: "抽帧",
+            detail: `${frame.mimeType}，${formatBytes(frame.sizeBytes)}`,
+          },
+          ...current,
+        ].slice(0, 5),
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "抽帧失败。";
+      setSessionState("error");
+      setFrameError(message);
+      setMessages((current) =>
+        [
+          ...current,
+          {
+            id: `frame-error-${Date.now()}`,
+            role: "system",
+            content: message,
+            status: "complete",
+          } satisfies ChatMessage,
+        ].slice(-6),
+      );
+    }
+  }
+
   function handleAction(action: Exclude<SessionAction, "start" | "stop">) {
     const nextState =
       action === "mute" ? sessionState : getNextSessionState(sessionState, action);
@@ -223,7 +296,7 @@ export function ConversationWorkspace() {
           <p className="eyebrow">Audai</p>
           <h1>AI 视觉对话助手</h1>
         </div>
-        <div className="build-tag">PR 3</div>
+        <div className="build-tag">PR 4</div>
       </header>
 
       <section className="workspace" aria-label="对话工作区">
@@ -248,7 +321,7 @@ export function ConversationWorkspace() {
               </strong>
               <span>
                 {stream
-                  ? "摄像头与麦克风仅在浏览器本地采集，当前不会上传。"
+                  ? "摄像头与麦克风仅在浏览器本地采集，分析画面只做本地抽帧压缩。"
                   : "点击开始后浏览器会请求摄像头和麦克风权限。"}
               </span>
               <div className="audio-meter" aria-label="麦克风输入电平">
@@ -274,8 +347,8 @@ export function ConversationWorkspace() {
             </button>
             <button
               type="button"
-              onClick={() => handleAction("analyze")}
-              disabled={sessionState === "idle" || sessionState === "error"}
+              onClick={handleAnalyzeFrame}
+              disabled={!stream || !hasVideo || sessionState === "error"}
             >
               分析画面
             </button>
@@ -325,6 +398,48 @@ export function ConversationWorkspace() {
               </div>
             ))}
           </div>
+
+          <section className="frame-panel" aria-label="抽帧结果">
+            <div className="frame-panel-header">
+              <strong>最近抽帧</strong>
+              <span>{latestFrame ? formatBytes(latestFrame.sizeBytes) : "暂无"}</span>
+            </div>
+
+            {latestFrame ? (
+              <>
+                <div
+                  aria-label="最近一次本地抽帧预览"
+                  className="frame-preview"
+                  role="img"
+                  style={{ backgroundImage: `url(${latestFrame.dataUrl})` }}
+                />
+                <dl>
+                  <div>
+                    <dt>压缩尺寸</dt>
+                    <dd>
+                      {latestFrame.width} x {latestFrame.height}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>原始尺寸</dt>
+                    <dd>
+                      {latestFrame.originalWidth} x {latestFrame.originalHeight}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>格式</dt>
+                    <dd>{latestFrame.mimeType}</dd>
+                  </div>
+                  <div>
+                    <dt>质量</dt>
+                    <dd>{Math.round(latestFrame.quality * 100)}%</dd>
+                  </div>
+                </dl>
+              </>
+            ) : (
+              <p>{frameError ?? "开始摄像头采集后，可点击分析画面生成本地压缩帧。"}</p>
+            )}
+          </section>
 
           <div className="timeline">
             {timeline.map((item) => (

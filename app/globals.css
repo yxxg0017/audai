@@ -306,7 +306,8 @@ h1 {
 
 .status-grid,
 .timeline,
-.state-track {
+.state-track,
+.frame-panel {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
@@ -393,6 +394,75 @@ h1 {
   color: #ffffff;
 }
 
+.frame-panel {
+  padding: 12px;
+}
+
+.frame-panel-header {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.frame-panel-header strong {
+  font-size: 14px;
+}
+
+.frame-panel-header span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.frame-preview {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  display: block;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #111719;
+  background-position: center;
+  background-size: cover;
+}
+
+.frame-panel dl {
+  margin: 12px 0 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.frame-panel dl div {
+  min-height: 58px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.frame-panel dt {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.frame-panel dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.frame-panel p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 .timeline {
   padding: 8px 0;
 }
@@ -477,6 +547,10 @@ h1 {
   }
 
   .state-track {
+    grid-template-columns: 1fr;
+  }
+
+  .frame-panel dl {
     grid-template-columns: 1fr;
   }
 
