@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getNextSessionState,
   initialMessages,
@@ -12,6 +12,7 @@ import {
   type SessionState,
   type TimelineEvent,
 } from "../lib/session-state";
+import { useLocalMedia, type MediaPermissionState } from "../lib/use-local-media";
 
 const sessionOrder: SessionState[] = [
   "idle",
@@ -24,12 +25,12 @@ const sessionOrder: SessionState[] = [
 
 function createMessage(state: SessionState, action: SessionAction): ChatMessage {
   const messageByState: Record<SessionState, string> = {
-    idle: "会话已停止。媒体轨道将在后续模块中释放。",
+    idle: "会话已停止，本地摄像头和麦克风轨道已释放。",
     connecting: "正在模拟建立实时会话，后续会替换为 Realtime 临时会话。",
-    listening: "模拟进入聆听状态。后续这里会展示麦克风输入和语音转写。",
+    listening: "本地摄像头和麦克风已就绪。当前音视频只在浏览器内使用。",
     thinking: "模拟触发画面分析。后续会从视频帧抽取图片并请求视觉模型。",
     speaking: "模拟 AI 回复中。后续会替换为流式文本和语音播放。",
-    error: "模拟异常状态。后续会承载权限、网络和模型调用错误。",
+    error: "媒体采集或模拟流程出现异常，请查看状态提示。",
   };
 
   return {
@@ -59,37 +60,161 @@ function createTimelineEvent(
   };
 }
 
+function getCameraStatus(permissionState: MediaPermissionState, hasVideo: boolean) {
+  if (permissionState === "requesting") {
+    return "请求权限";
+  }
+
+  if (permissionState === "blocked") {
+    return "权限被拒";
+  }
+
+  if (permissionState === "error") {
+    return "不可用";
+  }
+
+  return hasVideo ? "本地预览中" : "待授权";
+}
+
+function getMicrophoneStatus(
+  permissionState: MediaPermissionState,
+  hasAudio: boolean,
+  isMuted: boolean,
+) {
+  if (permissionState === "requesting") {
+    return "请求权限";
+  }
+
+  if (permissionState === "blocked") {
+    return "权限被拒";
+  }
+
+  if (permissionState === "error") {
+    return "不可用";
+  }
+
+  if (!hasAudio) {
+    return "待授权";
+  }
+
+  return isMuted ? "已静音" : "本地采集中";
+}
+
 export function ConversationWorkspace() {
   const [sessionState, setSessionState] = useState<SessionState>("idle");
   const [isMuted, setIsMuted] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [timeline, setTimeline] = useState<TimelineEvent[]>(initialTimeline);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const {
+    permissionState,
+    stream,
+    audioLevel,
+    errorMessage,
+    hasVideo,
+    hasAudio,
+    startMedia,
+    stopMedia,
+  } = useLocalMedia();
+
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream]);
 
   const statusItems = useMemo(
     () => [
-      { label: "摄像头", value: sessionState === "idle" ? "待授权" : "模拟就绪" },
-      { label: "麦克风", value: isMuted ? "已静音" : "待输入" },
+      { label: "摄像头", value: getCameraStatus(permissionState, hasVideo) },
+      {
+        label: "麦克风",
+        value: getMicrophoneStatus(permissionState, hasAudio, isMuted),
+      },
       { label: "实时会话", value: sessionLabels[sessionState] },
       { label: "视觉分析", value: sessionState === "thinking" ? "模拟分析中" : "待触发" },
     ],
-    [isMuted, sessionState],
+    [hasAudio, hasVideo, isMuted, permissionState, sessionState],
   );
 
   const currentStep = sessionOrder.indexOf(sessionState);
 
-  function handleAction(action: SessionAction) {
-    const nextState = getNextSessionState(sessionState, action);
+  const appendInteraction = useCallback((nextState: SessionState, action: SessionAction) => {
+    setMessages((current) => [...current, createMessage(nextState, action)].slice(-6));
+    setTimeline((current) =>
+      [createTimelineEvent(nextState, action), ...current].slice(0, 5),
+    );
+  }, []);
+
+  async function handleStart() {
+    setSessionState("connecting");
+    setMessages((current) =>
+      [
+        ...current,
+        {
+          id: `media-request-${Date.now()}`,
+          role: "system",
+          content: "正在请求摄像头和麦克风权限。音视频不会上传到服务器。",
+          status: "complete",
+        } satisfies ChatMessage,
+      ].slice(-6),
+    );
+
+    const result = await startMedia();
+
+    if (result.ok) {
+      setSessionState("listening");
+      appendInteraction("listening", "start");
+      return;
+    }
+
+    setSessionState("error");
+    setMessages((current) =>
+      [
+        ...current,
+        {
+          id: `media-error-${Date.now()}`,
+          role: "system",
+          content: result.errorMessage,
+          status: "complete",
+        } satisfies ChatMessage,
+      ].slice(-6),
+    );
+    setTimeline((current) =>
+      [
+        {
+          id: `media-error-timeline-${Date.now()}`,
+          label: "权限",
+          detail: "本地媒体采集未启动",
+        },
+        ...current,
+      ].slice(0, 5),
+    );
+  }
+
+  function handleStop() {
+    stopMedia();
+    setIsMuted(false);
+    setSessionState("idle");
+    appendInteraction("idle", "stop");
+  }
+
+  function handleAction(action: Exclude<SessionAction, "start" | "stop">) {
+    const nextState =
+      action === "mute" ? sessionState : getNextSessionState(sessionState, action);
 
     if (action === "mute") {
       setIsMuted((current) => !current);
     }
 
     setSessionState(nextState);
-    setMessages((current) => [...current, createMessage(nextState, action)].slice(-6));
-    setTimeline((current) =>
-      [createTimelineEvent(nextState, action), ...current].slice(0, 5),
-    );
+    appendInteraction(nextState, action);
   }
+
+  useEffect(() => {
+    stream?.getAudioTracks().forEach((track) => {
+      track.enabled = !isMuted;
+    });
+  }, [isMuted, stream]);
 
   return (
     <main className="app-shell">
@@ -98,35 +223,52 @@ export function ConversationWorkspace() {
           <p className="eyebrow">Audai</p>
           <h1>AI 视觉对话助手</h1>
         </div>
-        <div className="build-tag">PR 2</div>
+        <div className="build-tag">PR 3</div>
       </header>
 
       <section className="workspace" aria-label="对话工作区">
         <div className="video-panel">
           <div className="video-frame">
+            <video
+              ref={videoRef}
+              aria-label="本地摄像头预览"
+              autoPlay
+              muted
+              playsInline
+            />
+
             <div className={`video-status state-${sessionState}`}>
               <span className="pulse" />
               <span>{sessionLabels[sessionState]}</span>
             </div>
 
             <div className="video-overlay">
-              <strong>{sessionDescriptions[sessionState]}</strong>
-              <span>真实摄像头预览将在媒体采集 PR 中接入</span>
+              <strong>
+                {errorMessage ?? sessionDescriptions[sessionState]}
+              </strong>
+              <span>
+                {stream
+                  ? "摄像头与麦克风仅在浏览器本地采集，当前不会上传。"
+                  : "点击开始后浏览器会请求摄像头和麦克风权限。"}
+              </span>
+              <div className="audio-meter" aria-label="麦克风输入电平">
+                <span style={{ width: `${Math.round(audioLevel * 100)}%` }} />
+              </div>
             </div>
           </div>
 
           <div className="control-bar" aria-label="会话控制">
             <button
               type="button"
-              onClick={() => handleAction("start")}
-              disabled={sessionState === "connecting"}
+              onClick={handleStart}
+              disabled={sessionState === "connecting" || permissionState === "requesting"}
             >
-              开始
+              {stream ? "重启采集" : "开始"}
             </button>
             <button
               type="button"
               onClick={() => handleAction("mute")}
-              disabled={sessionState === "idle" || sessionState === "error"}
+              disabled={!hasAudio || sessionState === "idle" || sessionState === "error"}
             >
               {isMuted ? "取消静音" : "静音"}
             </button>
@@ -142,8 +284,8 @@ export function ConversationWorkspace() {
             </button>
             <button
               type="button"
-              onClick={() => handleAction("stop")}
-              disabled={sessionState === "idle"}
+              onClick={handleStop}
+              disabled={!stream && sessionState === "idle"}
             >
               停止
             </button>

@@ -31,12 +31,12 @@ export const sessionLabels: Record<SessionState, string> = {
 };
 
 export const sessionDescriptions: Record<SessionState, string> = {
-  idle: "点击开始后进入模拟会话，后续 PR 将接入真实媒体流。",
-  connecting: "正在建立会话状态，当前使用 mock 流程演示。",
-  listening: "模拟麦克风输入已就绪，可触发画面分析或停止会话。",
+  idle: "点击开始后浏览器会请求摄像头和麦克风权限。",
+  connecting: "正在请求并连接本地摄像头和麦克风。",
+  listening: "本地音视频采集已就绪，可进行后续视觉抽帧或实时语音接入。",
   thinking: "模拟 AI 正在整理语音和视觉上下文。",
   speaking: "模拟 AI 正在输出回复，后续会替换为流式音频和文本。",
-  error: "模拟错误状态，用于验证恢复路径和提示样式。",
+  error: "媒体权限、设备或模拟流程出现异常。",
 };
 
 export function getNextSessionState(
@@ -70,7 +70,7 @@ export const initialMessages: ChatMessage[] = [
   {
     id: "system-setup",
     role: "system",
-    content: "会话工作区已准备好。当前为 PR 2 的 mock 状态，不会调用摄像头、麦克风或模型。",
+    content: "会话工作区已准备好。当前模块会采集本地摄像头和麦克风，但不会上传音视频或调用模型。",
     status: "complete",
   },
   {
