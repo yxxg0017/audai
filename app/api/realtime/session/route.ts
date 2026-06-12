@@ -17,6 +17,7 @@ type RealtimeSessionResponse = {
   expiresAt: number | null;
   model: string;
   voice: string;
+  transcriptionModel: string;
 };
 
 function getRealtimeModel() {
@@ -25,6 +26,13 @@ function getRealtimeModel() {
 
 function getRealtimeVoice() {
   return process.env.OPENAI_REALTIME_VOICE?.trim() || "marin";
+}
+
+function getRealtimeTranscriptionModel() {
+  return (
+    process.env.OPENAI_REALTIME_TRANSCRIPTION_MODEL?.trim() ||
+    "gpt-4o-mini-transcribe"
+  );
 }
 
 function createSafetyIdentifier(request: NextRequest) {
@@ -55,6 +63,7 @@ export async function POST(request: NextRequest) {
 
   const model = getRealtimeModel();
   const voice = getRealtimeVoice();
+  const transcriptionModel = getRealtimeTranscriptionModel();
   const safetyIdentifier = createSafetyIdentifier(request);
   const responsePayload = {
     session: {
@@ -62,10 +71,25 @@ export async function POST(request: NextRequest) {
       model,
       instructions: [
         "你是一个低延迟 AI 视觉对话助手。",
-        "当前阶段只创建 Realtime 临时会话，前端 WebRTC 音频连接会在后续模块接入。",
+        "你会通过实时语音与用户自然对话，并根据后续注入的视觉上下文回答问题。",
         "正式对话时请用简洁自然的中文回答，并在不确定时明确说明。",
+        "如果用户插话或纠正你，请立即停止当前解释，优先回应用户最新输入。",
       ].join("\n"),
       audio: {
+        input: {
+          transcription: {
+            model: transcriptionModel,
+            language: "zh",
+          },
+          turn_detection: {
+            type: "server_vad",
+            threshold: 0.5,
+            prefix_padding_ms: 300,
+            silence_duration_ms: 500,
+            create_response: true,
+            interrupt_response: true,
+          },
+        },
         output: {
           voice,
         },
@@ -115,6 +139,7 @@ export async function POST(request: NextRequest) {
     expiresAt: data.client_secret?.expires_at ?? null,
     model,
     voice,
+    transcriptionModel,
   };
 
   return NextResponse.json(body);
