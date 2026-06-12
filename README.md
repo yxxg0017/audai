@@ -173,7 +173,7 @@ npm run build
 1. 每个功能或修复创建独立分支。
 2. 每个 PR 只实现或修改一个清晰目标。
 3. commit 信息遵循 [.gitmessage](.gitmessage) 中的格式。
-4. PR 描述需要包含功能说明、实现思路和测试方式。
+4. PR 标题、PR 描述和 commit 说明使用中文，描述需要包含功能说明、实现思路和测试方式。
 5. 合并后 `main` 分支必须保持可运行状态。
 6. PR 不允许空描述，描述必须与实际变更一致。
 7. 所有 commit 时间戳必须落在所选批次开始与截止时间内。
@@ -197,10 +197,10 @@ type(scope): summary
 示例：
 
 ```text
-docs(readme): translate project overview to Chinese
-feat(camera): add camera preview capture
-feat(audio): stream microphone input to realtime session
-fix(turn): handle interruption during assistant response
+docs(readme): 补充最终演示与启动说明
+feat(camera): 增加摄像头预览采集
+feat(audio): 接入实时语音输入
+fix(turn): 修复回复打断状态
 ```
 
 ## 参考规则
