@@ -76,11 +76,11 @@ function isFreshVisionContext(context: VisionContext | null) {
 function createMessage(state: SessionState, action: SessionAction): ChatMessage {
   const messageByState: Record<SessionState, string> = {
     idle: "会话已停止，本地摄像头和麦克风轨道已释放。",
-    connecting: "正在模拟建立实时会话，后续会替换为 Realtime 临时会话。",
+    connecting: "正在建立本地媒体或 Realtime 实时会话。",
     listening: "本地摄像头和麦克风已就绪。当前音视频只在浏览器内使用。",
-    thinking: "模拟触发画面分析。后续会从视频帧抽取图片并请求视觉模型。",
-    speaking: "模拟 AI 回复中。后续会替换为流式文本和语音播放。",
-    error: "媒体采集或模拟流程出现异常，请查看状态提示。",
+    thinking: "正在整理语音问题、视觉上下文或模型响应。",
+    speaking: "AI 正在输出实时语音或文本回复。",
+    error: "媒体采集或会话流程出现异常，请查看状态提示。",
   };
 
   return {
@@ -717,7 +717,7 @@ export function ConversationWorkspace() {
           <p className="eyebrow">Audai</p>
           <h1>AI 视觉对话助手</h1>
         </div>
-        <div className="build-tag">PR 8</div>
+        <div className="build-tag">Final</div>
       </header>
 
       <section className="workspace" aria-label="对话工作区">
@@ -821,7 +821,7 @@ export function ConversationWorkspace() {
               发送上下文
             </button>
             <button type="button" onClick={() => handleAction("fail")}>
-              模拟异常
+              标记异常
             </button>
             <button
               type="button"

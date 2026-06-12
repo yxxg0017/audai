@@ -53,7 +53,7 @@
 - TypeScript
 - ESLint
 
-后续模块会继续接入 Vercel AI SDK、OpenAI Realtime/WebRTC 和多模态视觉分析能力。
+当前实现已接入 OpenAI Realtime/WebRTC 和多模态视觉分析能力。
 
 ## 第三方依赖与原创功能边界
 
@@ -71,7 +71,7 @@
 - 会话状态模型与 mock 交互流程。
 - 本地摄像头/麦克风采集、视觉抽帧压缩、视觉分析 API、Realtime WebRTC 语音连接、语音转写与打断控制。
 - 语音视觉上下文融合：检测用户语音中的视觉意图，按需抽取当前画面生成摘要，并注入 Realtime 对话。
-- 后续成本控制、最终文档和验收修复模块均在本仓库内分 PR 独立实现。
+- 成本控制、最终文档和验收修复模块均在本仓库内分 PR 独立实现。
 
 如后续引入 Vercel AI SDK、OpenAI SDK、WebRTC 示例代码或复用个人历史代码，必须在对应 PR 描述和 README 中说明来源、用途和原创实现边界。
 
