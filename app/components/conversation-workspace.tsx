@@ -20,6 +20,7 @@ import { useLocalMedia, type MediaPermissionState } from "../lib/use-local-media
 import {
   useRealtimeAudio,
   type RealtimeConnectionState,
+  type RealtimeTurnState,
 } from "../lib/use-realtime-audio";
 
 const sessionOrder: SessionState[] = [
@@ -128,6 +129,41 @@ function getRealtimeStatus(connectionState: RealtimeConnectionState) {
   return labels[connectionState];
 }
 
+function getRealtimeTurnStatus(turnState: RealtimeTurnState) {
+  const labels: Record<RealtimeTurnState, string> = {
+    idle: "未开始",
+    listening: "等待用户说话",
+    user_speaking: "用户说话中",
+    thinking: "模型思考中",
+    assistant_speaking: "AI 回复中",
+    interrupted: "已插话中断",
+    error: "回合异常",
+  };
+
+  return labels[turnState];
+}
+
+function getSessionStateFromRealtime(
+  connectionState: RealtimeConnectionState,
+  turnState: RealtimeTurnState,
+  fallbackState: SessionState,
+) {
+  if (connectionState !== "connected") {
+    return fallbackState;
+  }
+
+  const stateByRealtimeTurn: Partial<Record<RealtimeTurnState, SessionState>> = {
+    listening: "listening",
+    user_speaking: "listening",
+    thinking: "thinking",
+    assistant_speaking: "speaking",
+    interrupted: "listening",
+    error: "error",
+  };
+
+  return stateByRealtimeTurn[turnState] ?? fallbackState;
+}
+
 function formatBytes(bytes: number) {
   if (bytes < 1024) {
     return `${bytes} B`;
@@ -169,7 +205,12 @@ export function ConversationWorkspace() {
     remoteStream,
     model: realtimeModel,
     voice: realtimeVoice,
+    transcriptionModel,
+    turnState,
+    interruptionCount,
+    transcripts,
     events: realtimeEvents,
+    cancelResponse,
     connect: connectRealtime,
     disconnect: disconnectRealtime,
   } = useRealtimeAudio();
@@ -193,7 +234,13 @@ export function ConversationWorkspace() {
         label: "麦克风",
         value: getMicrophoneStatus(permissionState, hasAudio, isMuted),
       },
-      { label: "实时会话", value: getRealtimeStatus(connectionState) },
+      {
+        label: "实时会话",
+        value:
+          connectionState === "connected"
+            ? getRealtimeTurnStatus(turnState)
+            : getRealtimeStatus(connectionState),
+      },
       {
         label: "视觉分析",
         value: isVisionLoading
@@ -211,10 +258,16 @@ export function ConversationWorkspace() {
       latestFrame,
       permissionState,
       connectionState,
+      turnState,
     ],
   );
 
-  const currentStep = sessionOrder.indexOf(sessionState);
+  const displayedSessionState = getSessionStateFromRealtime(
+    connectionState,
+    turnState,
+    sessionState,
+  );
+  const currentStep = sessionOrder.indexOf(displayedSessionState);
 
   const appendInteraction = useCallback((nextState: SessionState, action: SessionAction) => {
     setMessages((current) => [...current, createMessage(nextState, action)].slice(-6));
@@ -275,6 +328,36 @@ export function ConversationWorkspace() {
     setIsMuted(false);
     setSessionState("idle");
     appendInteraction("idle", "stop");
+  }
+
+  function handleDisconnectRealtime() {
+    disconnectRealtime();
+    setSessionState(stream ? "listening" : "idle");
+    setTimeline((current) =>
+      [
+        {
+          id: `realtime-disconnected-${Date.now()}`,
+          label: "Realtime",
+          detail: "WebRTC 语音连接已断开",
+        },
+        ...current,
+      ].slice(0, 5),
+    );
+  }
+
+  function handleCancelRealtimeResponse() {
+    cancelResponse();
+    setSessionState("listening");
+    setTimeline((current) =>
+      [
+        {
+          id: `realtime-cancel-${Date.now()}`,
+          label: "中断",
+          detail: "已请求取消当前 AI 语音回复",
+        },
+        ...current,
+      ].slice(0, 5),
+    );
   }
 
   async function handleConnectRealtime() {
@@ -451,7 +534,7 @@ export function ConversationWorkspace() {
           <p className="eyebrow">Audai</p>
           <h1>AI 视觉对话助手</h1>
         </div>
-        <div className="build-tag">PR 6</div>
+        <div className="build-tag">PR 8</div>
       </header>
 
       <section className="workspace" aria-label="对话工作区">
@@ -466,14 +549,14 @@ export function ConversationWorkspace() {
               playsInline
             />
 
-            <div className={`video-status state-${sessionState}`}>
+            <div className={`video-status state-${displayedSessionState}`}>
               <span className="pulse" />
-              <span>{sessionLabels[sessionState]}</span>
+              <span>{sessionLabels[displayedSessionState]}</span>
             </div>
 
             <div className="video-overlay">
               <strong>
-                {errorMessage ?? sessionDescriptions[sessionState]}
+                {errorMessage ?? sessionDescriptions[displayedSessionState]}
               </strong>
               <span>
                 {stream
@@ -512,6 +595,23 @@ export function ConversationWorkspace() {
               }
             >
               {connectionState === "connected" ? "语音已连接" : "连接语音"}
+            </button>
+            <button
+              type="button"
+              onClick={handleCancelRealtimeResponse}
+              disabled={
+                connectionState !== "connected" ||
+                turnState !== "assistant_speaking"
+              }
+            >
+              中断回复
+            </button>
+            <button
+              type="button"
+              onClick={handleDisconnectRealtime}
+              disabled={connectionState !== "connected"}
+            >
+              断开语音
             </button>
             <button
               type="button"
@@ -646,17 +746,43 @@ export function ConversationWorkspace() {
                 <dt>声音</dt>
                 <dd>{realtimeVoice ?? "待连接"}</dd>
               </div>
+              <div>
+                <dt>转写</dt>
+                <dd>{transcriptionModel ?? "待连接"}</dd>
+              </div>
+              <div>
+                <dt>插话</dt>
+                <dd>{interruptionCount} 次</dd>
+              </div>
             </dl>
             <p>
               {realtimeError ??
                 (connectionState === "connected"
-                  ? "麦克风音频正在通过 WebRTC 发送，模型语音会自动播放。"
+                  ? `麦克风音频正在通过 WebRTC 发送，当前回合：${getRealtimeTurnStatus(turnState)}。`
                   : "开始本地采集后，可连接 Realtime 语音。")}
             </p>
+            {transcripts.length > 0 ? (
+              <div className="transcript-list" aria-label="实时转写">
+                {transcripts.slice(0, 4).map((transcript) => (
+                  <article
+                    className={`transcript-item transcript-${transcript.role}`}
+                    key={transcript.id}
+                  >
+                    <span>
+                      {transcript.role === "user" ? "用户" : "AI"}
+                      {transcript.status === "streaming" ? " · 流式" : ""}
+                    </span>
+                    <p>{transcript.text}</p>
+                  </article>
+                ))}
+              </div>
+            ) : null}
             {realtimeEvents.length > 0 ? (
               <ul>
                 {realtimeEvents.slice(0, 4).map((event) => (
-                  <li key={event.id}>{event.type}</li>
+                  <li key={event.id} title={event.summary}>
+                    {event.type}
+                  </li>
                 ))}
               </ul>
             ) : null}
