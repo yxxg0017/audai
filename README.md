@@ -23,6 +23,40 @@
   - 计划实现哪些用户故事，最终实现了哪些。
   - 想到了哪些运营成本控制技巧，实际采用了哪些。
 
+## 技术栈
+
+当前应用骨架使用：
+
+- Next.js 16
+- React 19
+- TypeScript
+- ESLint
+
+后续模块会继续接入 Vercel AI SDK、OpenAI Realtime/WebRTC 和多模态视觉分析能力。
+
+## 本地启动
+
+环境要求：
+
+- Node.js 22 或更高版本
+- npm
+
+首次运行：
+
+```bash
+npm install
+cp .env.example .env.local
+npm run dev
+```
+
+常用命令：
+
+```bash
+npm run lint
+npm run typecheck
+npm run build
+```
+
 ## 开发规范
 
 为了满足持续交付和学术诚信要求，本项目采用小步提交、按功能开 PR 的方式开发。
