@@ -41,6 +41,7 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
             autoComplete="off"
             onChange={(event) => updateField("apiKey", event.target.value)}
             placeholder="sk-..."
+            required
             type="password"
             value={draft.apiKey}
           />
@@ -50,6 +51,7 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
           <input
             onChange={(event) => updateField("baseUrl", event.target.value)}
             placeholder="https://api.openai.com/v1"
+            required
             type="url"
             value={draft.baseUrl}
           />
@@ -108,13 +110,11 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
 export function AppGate() {
   const [config, setConfig] = useState<ClientConfig>(defaultClientConfig);
   const [showSettings, setShowSettings] = useState(false);
-  const [hasLoadedConfig, setHasLoadedConfig] = useState(false);
   const isReady = isClientConfigReady(config);
 
   useEffect(() => {
     queueMicrotask(() => {
       setConfig(loadClientConfig());
-      setHasLoadedConfig(true);
     });
   }, []);
 
@@ -128,17 +128,6 @@ export function AppGate() {
     clearClientConfig();
     setConfig(defaultClientConfig);
     setShowSettings(false);
-  }
-
-  if (!hasLoadedConfig) {
-    return (
-      <main className="config-shell">
-        <section className="config-card">
-          <p className="eyebrow">Audai</p>
-          <h1>正在读取配置</h1>
-        </section>
-      </main>
-    );
   }
 
   if (!isReady) {
