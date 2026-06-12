@@ -49,6 +49,7 @@ const visualIntentKeywords = [
   "手里",
 ];
 const visionContextTtlMs = 60_000;
+const maxMessageHistory = 80;
 
 type VisionApiResponse = {
   analysis?: string;
@@ -92,6 +93,10 @@ function createMessage(state: SessionState, action: SessionAction): ChatMessage 
     content: messageByState[state],
     status: state === "speaking" ? "streaming" : "complete",
   };
+}
+
+function keepMessageHistory(messages: ChatMessage[]) {
+  return messages.slice(-maxMessageHistory);
 }
 
 function createTimelineEvent(
@@ -235,6 +240,9 @@ export function ConversationWorkspace({
   clientConfig,
   onOpenSettings,
 }: ConversationWorkspaceProps) {
+  const [activeMenu, setActiveMenu] = useState<
+    "status" | "logs" | "cost" | null
+  >(null);
   const [sessionState, setSessionState] = useState<SessionState>("idle");
   const [isMuted, setIsMuted] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
@@ -342,9 +350,31 @@ export function ConversationWorkspace({
   );
 
   const appendInteraction = useCallback((nextState: SessionState, action: SessionAction) => {
-    setMessages((current) => [...current, createMessage(nextState, action)].slice(-6));
+    setMessages((current) =>
+      keepMessageHistory([...current, createMessage(nextState, action)]),
+    );
     setTimeline((current) =>
       [createTimelineEvent(nextState, action), ...current].slice(0, 5),
+    );
+  }, []);
+
+  const appendPipelineExchange = useCallback((question: string, answer: string) => {
+    setMessages((current) =>
+      keepMessageHistory([
+        ...current,
+        {
+          id: `pipeline-user-${Date.now()}`,
+          role: "user",
+          content: question,
+          status: "complete",
+        },
+        {
+          id: `pipeline-assistant-${Date.now()}`,
+          role: "assistant",
+          content: answer,
+          status: "complete",
+        },
+      ]),
     );
   }, []);
 
@@ -454,7 +484,7 @@ export function ConversationWorkspace({
           error instanceof Error ? error.message : "视觉上下文生成失败。";
         setVisionContextStatus(message);
         setMessages((current) =>
-          [
+          keepMessageHistory([
             ...current,
             {
               id: `vision-context-error-${Date.now()}`,
@@ -462,7 +492,7 @@ export function ConversationWorkspace({
               content: message,
               status: "complete",
             } satisfies ChatMessage,
-          ].slice(-6),
+          ]),
         );
         return undefined;
       }
@@ -481,7 +511,7 @@ export function ConversationWorkspace({
   async function handleStart() {
     setSessionState("connecting");
     setMessages((current) =>
-      [
+      keepMessageHistory([
         ...current,
         {
           id: `media-request-${Date.now()}`,
@@ -489,7 +519,7 @@ export function ConversationWorkspace({
           content: "正在请求摄像头和麦克风权限。音视频不会上传到服务器。",
           status: "complete",
         } satisfies ChatMessage,
-      ].slice(-6),
+      ]),
     );
 
     const result = await startMedia();
@@ -502,7 +532,7 @@ export function ConversationWorkspace({
 
     setSessionState("error");
     setMessages((current) =>
-      [
+      keepMessageHistory([
         ...current,
         {
           id: `media-error-${Date.now()}`,
@@ -510,7 +540,7 @@ export function ConversationWorkspace({
           content: result.errorMessage,
           status: "complete",
         } satisfies ChatMessage,
-      ].slice(-6),
+      ]),
     );
     setTimeline((current) =>
       [
@@ -567,7 +597,7 @@ export function ConversationWorkspace({
     if (!stream || !hasAudio) {
       setSessionState("error");
       setMessages((current) =>
-        [
+        keepMessageHistory([
           ...current,
           {
             id: `realtime-no-audio-${Date.now()}`,
@@ -575,14 +605,14 @@ export function ConversationWorkspace({
             content: "请先开始本地麦克风采集，再连接实时语音。",
             status: "complete",
           } satisfies ChatMessage,
-        ].slice(-6),
+        ]),
       );
       return;
     }
 
     setSessionState("connecting");
     setMessages((current) =>
-      [
+      keepMessageHistory([
         ...current,
         {
           id: `realtime-connect-${Date.now()}`,
@@ -590,7 +620,7 @@ export function ConversationWorkspace({
           content: "正在创建 Realtime WebRTC 连接。",
           status: "complete",
         } satisfies ChatMessage,
-      ].slice(-6),
+      ]),
     );
 
     const result = await connectRealtime(stream, clientConfig);
@@ -600,7 +630,7 @@ export function ConversationWorkspace({
         result.errorMessage ?? "Realtime WebRTC 连接失败。";
       setSessionState("error");
       setMessages((current) =>
-        [
+        keepMessageHistory([
           ...current,
           {
             id: `realtime-error-${Date.now()}`,
@@ -608,7 +638,7 @@ export function ConversationWorkspace({
             content: realtimeErrorMessage,
             status: "complete",
           } satisfies ChatMessage,
-        ].slice(-6),
+        ]),
       );
       return;
     }
@@ -642,7 +672,7 @@ export function ConversationWorkspace({
       const frame = await captureCompressedFrame(videoRef.current);
       setLatestFrame(frame);
       setMessages((current) =>
-        [
+        keepMessageHistory([
           ...current,
           {
             id: `frame-${Date.now()}`,
@@ -650,7 +680,7 @@ export function ConversationWorkspace({
             content: `问题：${visionQuestion.trim() || defaultVisionQuestion}\n已本地抽帧：${frame.width}x${frame.height}，${formatBytes(frame.sizeBytes)}。`,
             status: "complete",
           } satisfies ChatMessage,
-        ].slice(-6),
+        ]),
       );
       const response = await fetch("/api/vision", {
         method: "POST",
@@ -673,7 +703,7 @@ export function ConversationWorkspace({
       setVisionModel(payload.model ?? null);
       setSessionState("listening");
       setMessages((current) =>
-        [
+        keepMessageHistory([
           ...current,
           {
             id: `vision-${Date.now()}`,
@@ -681,7 +711,7 @@ export function ConversationWorkspace({
             content: analysis,
             status: "complete",
           } satisfies ChatMessage,
-        ].slice(-6),
+        ]),
       );
       setTimeline((current) =>
         [
@@ -698,7 +728,7 @@ export function ConversationWorkspace({
       setSessionState("error");
       setFrameError(message);
       setMessages((current) =>
-        [
+        keepMessageHistory([
           ...current,
           {
             id: `frame-error-${Date.now()}`,
@@ -706,7 +736,7 @@ export function ConversationWorkspace({
             content: message,
             status: "complete",
           } satisfies ChatMessage,
-        ].slice(-6),
+        ]),
       );
     } finally {
       setIsVisionLoading(false);
@@ -767,6 +797,15 @@ export function ConversationWorkspace({
         </div>
         <nav className="topbar-menu" aria-label="应用菜单">
           <span className="build-tag">{clientConfig.visionModel}</span>
+          <button onClick={() => setActiveMenu("status")} type="button">
+            状态
+          </button>
+          <button onClick={() => setActiveMenu("logs")} type="button">
+            日志
+          </button>
+          <button onClick={() => setActiveMenu("cost")} type="button">
+            成本
+          </button>
           <button onClick={onOpenSettings} type="button">
             设置
           </button>
@@ -827,6 +866,7 @@ export function ConversationWorkspace({
                   onClick={() =>
                     voicePipeline.start({
                       clientConfig,
+                      onAnswer: appendPipelineExchange,
                       onFinalTranscript: async (text) => {
                         if (!shouldUseVisionForTranscript(text)) {
                           return undefined;
@@ -896,10 +936,12 @@ export function ConversationWorkspace({
                   );
 
                   if (isPipelineMode) {
+                    const visualContextText = visualContext ?? undefined;
                     await voicePipeline.ask({
                       clientConfig,
                       message: question,
-                      visualContext,
+                      visualContext: visualContextText,
+                      onAnswer: (answer) => appendPipelineExchange(question, answer),
                     });
                   }
                 })();
@@ -949,7 +991,27 @@ export function ConversationWorkspace({
           </section>
         </div>
 
-        <aside className="side-panel" aria-label="会话状态">
+        {activeMenu ? (
+          <div className="menu-backdrop" role="presentation">
+            <aside className="menu-drawer" aria-label="控制台菜单">
+              <div className="menu-drawer-header">
+                <div>
+                  <p className="eyebrow">Console</p>
+                  <h2>
+                    {activeMenu === "status"
+                      ? "状态"
+                      : activeMenu === "logs"
+                        ? "日志"
+                        : "成本"}
+                  </h2>
+                </div>
+                <button onClick={() => setActiveMenu(null)} type="button">
+                  关闭
+                </button>
+              </div>
+
+              {activeMenu === "status" ? (
+                <>
           <div className="status-grid">
             {statusItems.map((item) => (
               <div className="status-item" key={item.label}>
@@ -1046,7 +1108,10 @@ export function ConversationWorkspace({
               </dl>
             ) : null}
           </section>
+                </>
+              ) : null}
 
+              {activeMenu === "cost" ? (
           <section className="cost-panel" aria-label="成本控制">
             <div className="frame-panel-header">
               <strong>成本控制</strong>
@@ -1074,7 +1139,10 @@ export function ConversationWorkspace({
               摄像头画面只在用户触发视觉问题时抽帧分析，默认低细节输入，并复用短期视觉摘要。
             </p>
           </section>
+              ) : null}
 
+              {activeMenu === "logs" ? (
+                <>
           <section className="realtime-panel" aria-label="语音连接">
             <div className="frame-panel-header">
               <strong>{isPipelineMode ? "语音流水线" : "实时语音"}</strong>
@@ -1186,7 +1254,11 @@ export function ConversationWorkspace({
               </div>
             ))}
           </div>
-        </aside>
+                </>
+              ) : null}
+            </aside>
+          </div>
+        ) : null}
       </section>
     </main>
   );

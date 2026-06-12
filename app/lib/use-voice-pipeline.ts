@@ -99,10 +99,12 @@ export function useVoicePipeline() {
     async ({
       clientConfig,
       message,
+      onAnswer,
       visualContext,
     }: {
       clientConfig: ClientConfig;
       message: string;
+      onAnswer?: (answer: string) => void;
       visualContext?: string;
     }) => {
       const trimmedMessage = message.trim();
@@ -135,6 +137,7 @@ export function useVoicePipeline() {
 
       setLastAnswer(payload.answer);
       setModel(payload.model ?? null);
+      onAnswer?.(payload.answer);
       speak(payload.answer);
     },
     [speak],
@@ -143,9 +146,11 @@ export function useVoicePipeline() {
   const start = useCallback(
     ({
       clientConfig,
+      onAnswer,
       onFinalTranscript,
     }: {
       clientConfig: ClientConfig;
+      onAnswer?: (question: string, answer: string) => void;
       onFinalTranscript?: (text: string) => Promise<string | undefined>;
     }) => {
       const SpeechRecognition = getSpeechRecognitionConstructor();
@@ -189,6 +194,7 @@ export function useVoicePipeline() {
           await ask({
             clientConfig,
             message: trimmedText,
+            onAnswer: (answer) => onAnswer?.(trimmedText, answer),
             visualContext,
           });
         })();
