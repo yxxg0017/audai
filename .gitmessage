@@ -1,0 +1,17 @@
+# type(scope): summary
+#
+# Body: explain why this change is needed and any key tradeoffs.
+# Verification: list tests or manual checks performed.
+#
+# Types:
+#   feat     user-visible feature
+#   fix      bug fix
+#   docs     documentation
+#   test     tests
+#   refactor code restructure without behavior change
+#   chore    tooling or maintenance
+#
+# Examples:
+#   docs(repo): add project requirements and PR workflow
+#   feat(camera): request camera permission and show preview
+
