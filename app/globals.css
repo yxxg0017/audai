@@ -341,7 +341,8 @@ h1 {
 .timeline,
 .state-track,
 .frame-panel,
-.vision-result {
+.vision-result,
+.realtime-panel {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
@@ -432,7 +433,8 @@ h1 {
   padding: 12px;
 }
 
-.vision-result {
+.vision-result,
+.realtime-panel {
   padding: 12px;
 }
 
@@ -465,14 +467,16 @@ h1 {
   background-size: cover;
 }
 
-.frame-panel dl {
+.frame-panel dl,
+.realtime-panel dl {
   margin: 12px 0 0;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
 
-.frame-panel dl div {
+.frame-panel dl div,
+.realtime-panel dl div {
   min-height: 58px;
   padding: 10px;
   border: 1px solid var(--line);
@@ -480,13 +484,15 @@ h1 {
   background: #ffffff;
 }
 
-.frame-panel dt {
+.frame-panel dt,
+.realtime-panel dt {
   margin: 0 0 6px;
   color: var(--muted);
   font-size: 12px;
 }
 
-.frame-panel dd {
+.frame-panel dd,
+.realtime-panel dd {
   margin: 0;
   color: var(--ink);
   font-size: 13px;
@@ -501,12 +507,32 @@ h1 {
   line-height: 1.5;
 }
 
-.vision-result p {
+.vision-result p,
+.realtime-panel p {
   margin: 0;
   white-space: pre-wrap;
   color: var(--ink);
   font-size: 14px;
   line-height: 1.6;
+}
+
+.realtime-panel ul {
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+}
+
+.realtime-panel li {
+  max-width: 100%;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #eef2f7;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .timeline {
@@ -596,7 +622,8 @@ h1 {
     grid-template-columns: 1fr;
   }
 
-  .frame-panel dl {
+  .frame-panel dl,
+  .realtime-panel dl {
     grid-template-columns: 1fr;
   }
 
