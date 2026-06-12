@@ -20,6 +20,20 @@ type ConfigFormProps = {
   onSave: (config: ClientConfig) => void;
 };
 
+function getConfigFormKey(config: ClientConfig, mode: ConfigFormProps["mode"]) {
+  return [
+    mode,
+    config.apiKey ? "has-key" : "no-key",
+    config.baseUrl,
+    config.voiceMode,
+    config.chatModel,
+    config.visionModel,
+    config.realtimeModel,
+    config.realtimeVoice,
+    config.realtimeTranscriptionModel,
+  ].join("|");
+}
+
 function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps) {
   const [draft, setDraft] = useState(config);
 
@@ -133,27 +147,49 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
 export function AppGate() {
   const [config, setConfig] = useState<ClientConfig>(defaultClientConfig);
   const [showSettings, setShowSettings] = useState(false);
+  const [savedConfigRevision, setSavedConfigRevision] = useState(0);
+  const [hasStoredConfig, setHasStoredConfig] = useState(false);
+  const [hasCheckedStorage, setHasCheckedStorage] = useState(false);
   const isReady = isClientConfigReady(config);
 
   useEffect(() => {
     queueMicrotask(() => {
-      setConfig(loadClientConfig());
+      const storedConfig = loadClientConfig();
+      setConfig(storedConfig);
+      setHasStoredConfig(isClientConfigReady(storedConfig));
+      setHasCheckedStorage(true);
     });
   }, []);
 
   function handleSave(nextConfig: ClientConfig) {
     saveClientConfig(nextConfig);
     setConfig(nextConfig);
+    setHasStoredConfig(isClientConfigReady(nextConfig));
+    setHasCheckedStorage(true);
+    setSavedConfigRevision((current) => current + 1);
     setShowSettings(false);
   }
 
   function handleClear() {
     clearClientConfig();
     setConfig(defaultClientConfig);
+    setHasStoredConfig(false);
+    setHasCheckedStorage(true);
     setShowSettings(false);
   }
 
-  if (!isReady) {
+  if (!hasCheckedStorage) {
+    return (
+      <main className="config-shell">
+        <section className="config-card">
+          <p className="eyebrow">Audai</p>
+          <h1>正在检测本地配置</h1>
+        </section>
+      </main>
+    );
+  }
+
+  if (!hasStoredConfig || !isReady) {
     return (
       <main className="config-shell">
         <section className="config-card">
@@ -164,7 +200,7 @@ export function AppGate() {
           </p>
           <ConfigForm
             config={config}
-            key="gate-config-form"
+            key={`${getConfigFormKey(config, "gate")}-${savedConfigRevision}`}
             mode="gate"
             onSave={handleSave}
           />
@@ -193,7 +229,7 @@ export function AppGate() {
             </div>
             <ConfigForm
               config={config}
-              key="settings-config-form"
+              key={`${getConfigFormKey(config, "panel")}-${savedConfigRevision}`}
               mode="panel"
               onCancel={() => setShowSettings(false)}
               onClear={handleClear}
