@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkRateLimit, rateLimitResponse } from "../../lib/rate-limit";
+import {
+  getOpenAIRequestConfig,
+  missingApiKeyResponse,
+  type ApiConfigBody,
+} from "../../lib/request-config";
 
 type VisionRequestBody = {
   imageDataUrl?: unknown;
   question?: unknown;
-};
+} & ApiConfigBody;
 
 type OpenAIResponse = {
   output_text?: string;
@@ -37,24 +42,11 @@ function getOutputText(response: OpenAIResponse) {
     .trim();
 }
 
-function getVisionModel() {
-  return process.env.OPENAI_VISION_MODEL?.trim() || "gpt-5.5";
-}
-
 function isGpt5Model(model: string) {
   return model.startsWith("gpt-5");
 }
 
 export async function POST(request: NextRequest) {
-  const apiKey = process.env.OPENAI_API_KEY;
-
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: "服务端未配置 OPENAI_API_KEY，无法进行视觉分析。" },
-      { status: 503 },
-    );
-  }
-
   const rateLimit = checkRateLimit(request, {
     namespace: "vision",
     maxRequests: 20,
@@ -90,11 +82,17 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const openaiConfig = getOpenAIRequestConfig(body);
+
+  if (!openaiConfig.apiKey) {
+    return missingApiKeyResponse("进行视觉分析");
+  }
+
   const question =
     typeof body.question === "string" && body.question.trim()
       ? body.question.trim().slice(0, MAX_QUESTION_LENGTH)
       : "请用中文简要描述画面中的主要内容，并指出需要注意的细节。";
-  const model = getVisionModel();
+  const model = openaiConfig.visionModel;
   const prompt = [
     "你是一个实时视觉对话助手。",
     "请基于用户提供的摄像头抽帧图片回答问题。",
@@ -129,10 +127,10 @@ export async function POST(request: NextRequest) {
   let response: Response;
 
   try {
-    response = await fetch("https://api.openai.com/v1/responses", {
+    response = await fetch(`${openaiConfig.baseUrl}/responses`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${openaiConfig.apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(responsePayload),

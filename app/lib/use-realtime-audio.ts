@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ClientConfig } from "./client-config";
 
 export type RealtimeConnectionState =
   | "idle"
@@ -78,6 +79,10 @@ function getEventSummary(payload: RealtimeServerEvent) {
   }
 
   return payload.type ?? "unknown";
+}
+
+function toRealtimeCallsUrl(baseUrl: string) {
+  return `${baseUrl.replace(/\/+$/, "")}/realtime/calls`;
 }
 
 export function useRealtimeAudio() {
@@ -353,7 +358,7 @@ export function useRealtimeAudio() {
   }, [setTurnState]);
 
   const connect = useCallback(
-    async (localStream: MediaStream) => {
+    async (localStream: MediaStream, clientConfig: ClientConfig) => {
       const audioTrack = localStream.getAudioTracks()[0];
 
       if (!audioTrack) {
@@ -372,6 +377,10 @@ export function useRealtimeAudio() {
 
       const tokenResponse = await fetch("/api/realtime/session", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          openai: clientConfig,
+        }),
       });
       const tokenPayload =
         (await tokenResponse.json()) as RealtimeSessionResponse;
@@ -434,7 +443,7 @@ export function useRealtimeAudio() {
       await peerConnection.setLocalDescription(offer);
 
       const sdpResponse = await fetch(
-        "https://api.openai.com/v1/realtime/calls",
+        toRealtimeCallsUrl(clientConfig.baseUrl),
         {
           method: "POST",
           body: offer.sdp,

@@ -22,6 +22,7 @@ import {
   type RealtimeConnectionState,
   type RealtimeTurnState,
 } from "../lib/use-realtime-audio";
+import type { ClientConfig } from "../lib/client-config";
 
 const sessionOrder: SessionState[] = [
   "idle",
@@ -209,7 +210,15 @@ function formatBytes(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
 }
 
-export function ConversationWorkspace() {
+type ConversationWorkspaceProps = {
+  clientConfig: ClientConfig;
+  onOpenSettings: () => void;
+};
+
+export function ConversationWorkspace({
+  clientConfig,
+  onOpenSettings,
+}: ConversationWorkspaceProps) {
   const [sessionState, setSessionState] = useState<SessionState>("idle");
   const [isMuted, setIsMuted] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
@@ -352,6 +361,7 @@ export function ConversationWorkspace() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               imageDataUrl: frame.dataUrl,
+              openai: clientConfig,
               question: [
                 `用户刚刚语音提问：${trimmedQuestion}`,
                 "请提取当前画面中与问题相关的事实，控制在 120 字以内。",
@@ -428,6 +438,7 @@ export function ConversationWorkspace() {
       }
     },
     [
+      clientConfig,
       connectionState,
       hasVideo,
       injectVisionContext,
@@ -550,7 +561,7 @@ export function ConversationWorkspace() {
       ].slice(-6),
     );
 
-    const result = await connectRealtime(stream);
+    const result = await connectRealtime(stream, clientConfig);
 
     if (!result.ok) {
       const realtimeErrorMessage =
@@ -614,6 +625,7 @@ export function ConversationWorkspace() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           imageDataUrl: frame.dataUrl,
+          openai: clientConfig,
           question: visionQuestion,
         }),
       });
@@ -717,7 +729,12 @@ export function ConversationWorkspace() {
           <p className="eyebrow">Audai</p>
           <h1>AI 视觉对话助手</h1>
         </div>
-        <div className="build-tag">Final</div>
+        <nav className="topbar-menu" aria-label="应用菜单">
+          <span className="build-tag">{clientConfig.visionModel}</span>
+          <button onClick={onOpenSettings} type="button">
+            设置
+          </button>
+        </nav>
       </header>
 
       <section className="workspace" aria-label="对话工作区">
