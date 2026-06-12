@@ -1,38 +1,60 @@
-# AI Vision Conversation Assistant
+# AI 视觉对话助手
 
-This repository is for the 3-day practical project: an AI assistant that can see camera video, hear user speech, and respond naturally.
+本仓库用于完成 3 天议题实战项目：开发一款能调用摄像头和麦克风的 AI 对话应用，让 AI 可以看到实时画面、听到用户语音，并给出合适回应。
 
-## Project Requirement
+当前仓库处于私有开发阶段；最终提交前需要按活动要求确认仓库可访问性、README、设计文档和 demo 视频无误。
 
-Build an application that:
+## 项目目标
 
-- Opens the camera and microphone with user permission.
-- Lets AI understand live visual content from the camera.
-- Lets AI understand user speech input.
-- Provides appropriate spoken or text responses.
-- Considers visual understanding accuracy, voice interaction fluency, and cloud cost control.
+应用需要实现：
 
-## Required Deliverables
+- 在用户授权后打开摄像头和麦克风。
+- 采集摄像头画面，让 AI 理解当前视觉内容。
+- 采集用户语音，让 AI 理解用户问题或指令。
+- 以自然、低延迟的方式返回文字或语音回应。
+- 综合考虑视觉理解准确性、语音交互流畅度，以及端云协同下的运营成本控制。
 
-- Public GitHub repository.
-- Runnable application source code.
-- README with setup, run, and demo instructions.
-- Demo video.
-- Design document under `docs/design.md`, including:
-  - Planned user stories and actually implemented user stories.
-  - Cost-control ideas considered and actually adopted.
+## 必交内容
 
-## Development Workflow
+- 可运行的应用源码。
+- README：包含项目介绍、依赖说明、启动方式和 demo 指引。
+- demo 视频。
+- 设计文档：[docs/design.md](docs/design.md)，需要说明：
+  - 计划实现哪些用户故事，最终实现了哪些。
+  - 想到了哪些运营成本控制技巧，实际采用了哪些。
 
-Use small, traceable changes throughout the project period.
+## 开发规范
 
-1. Create a feature branch for each feature or fix.
-2. Keep each PR focused on one change.
-3. Use clear commit messages following `.gitmessage`.
-4. Describe implementation and testing in every PR.
-5. Keep `main` runnable after every merge.
+为了满足持续交付和学术诚信要求，本项目采用小步提交、按功能开 PR 的方式开发。
 
-## Reference Rules
+1. 每个功能或修复创建独立分支。
+2. 每个 PR 只实现或修改一个清晰目标。
+3. commit 信息遵循 [.gitmessage](.gitmessage) 中的格式。
+4. PR 描述需要包含功能说明、实现思路和测试方式。
+5. 合并后 `main` 分支必须保持可运行状态。
 
-See `docs/requirements.md` for the extracted project and Git submission rules from `ref/`.
+## 建议分支命名
 
+- `feature/<name>`：新增功能。
+- `fix/<name>`：问题修复。
+- `docs/<name>`：文档更新。
+- `chore/<name>`：工程配置或维护工作。
+
+## 建议 commit 格式
+
+```text
+type(scope): summary
+```
+
+示例：
+
+```text
+docs(readme): translate project overview to Chinese
+feat(camera): add camera preview capture
+feat(audio): stream microphone input to realtime session
+fix(turn): handle interruption during assistant response
+```
+
+## 参考规则
+
+从 `ref/` 中提炼出的项目要求和提交规范见 [docs/requirements.md](docs/requirements.md)。
