@@ -1,56 +1,108 @@
-# Requirements Extracted From References
+# 议题实战提交要求
 
-## Topic
+## 1. 议题方向
 
-AI Vision Conversation Assistant.
+AI 视觉对话助手。
 
-## Functional Goal
+## 2. 功能目标
 
-Develop an AI conversation application that uses camera and microphone input so the AI can:
+开发一款使用摄像头和麦克风输入的 AI 对话应用，让 AI 能够：
 
-- See video content from the camera.
-- Hear what the user says.
-- Give appropriate responses.
+- 看到摄像头中的视频内容。
+- 听到用户说的话。
+- 给出恰当回应。
 
-The implementation should consider:
+实现时需要综合考虑：
 
-- Accuracy of visual content understanding.
-- Naturalness and fluency of voice interaction.
-- Cost-control strategy for cloud and local collaboration.
+- 视觉内容理解准确性。
+- 语音交互自然度与流畅度。
+- 端云协同下的成本控制策略。
 
-## Required Design Document
+## 3. 须提交内容
 
-Submit an extra design document containing:
+最终提交需要包含：
 
-- Planned user stories and actually implemented user stories.
-- Cost-control techniques considered and actually adopted.
+- 内容公开或评委可访问的 GitHub/Gitee 仓库。
+- 可运行的应用源码。
+- demo 视频链接，需放入 README。
+- README 文档。
+- 设计文档，内容至少包含：
+  - 计划实现哪些用户故事，最终实现了哪些。
+  - 想到了哪些控制运营成本的技巧，实际采用了哪些。
 
-## 3-Day Delivery Rhythm
+开发过程中可保持仓库私有以防抄袭；提交截止后需公开访问或确保评委可访问，以便评审作品。
 
-- Day 1: Create the GitHub repository and submit the selected topic plus repository URL in the registration form.
-- Day 2: Continue iteration and submit PRs and commits according to the rules.
-- Day 3: Finish the work before the deadline and confirm the public code repository, demo video, and README are correct.
+## 4. 3 天交付节奏
 
-## Validity And Integrity Rules
+- 第 1 天：创建 GitHub 仓库，并在报名表提交所选题目和代码仓库地址。
+- 第 2 天：持续迭代，并按要求提交 PR 和 commit。
+- 第 3 天：持续完成作品，并在截止时间前确保公开代码仓库、demo 视频、README 文档等资料无误。
 
-- The work must match the selected topic.
-- The work must be independently completed and must not be plagiarized.
-- Development should be continuous during the project period.
-- Avoid a last-minute single bulk submission; that can be considered invalid.
-- All commit timestamps must fall within the selected batch's start and deadline.
-- PR descriptions must not be empty and must match the actual code change.
-- Third-party libraries/frameworks must be listed in README, with original functionality clearly explained.
-- Reused personal code must be cited in the PR description.
+## 5. 作品有效性
 
-## PR Submission Rules
+- 作品必须符合所选议题方向。
+- 作品必须自主完成，不得抄袭。
+- 全周期持续交付，严禁临尾突击提交。
+- 从议题发布之日起，开发周期内需保持持续的 PR 和 commit 记录。
+- 仅在最后一天一次性导入所有代码的作品，将直接视为无效作品。
+- 所有 commit 时间戳必须落在所选批次的开始与截止时间之内，否则视为无效作品。
 
-- Add new features through PRs.
-- Each PR should implement or modify one feature only.
-- Large features should be split into multiple independent PRs.
-- PR title: one sentence explaining what was added or changed.
-- PR description should include:
-  - Feature description and usage.
-  - Implementation approach or core logic.
-  - Test method and verification result.
-- After merge, the `main` branch must remain runnable and reproducible for review.
+其他无效情形：
 
+- PR 描述空白，或与实际代码变更严重不符。
+- 引用了第三方库或框架，但未在 README 中列明依赖，且未说明原创功能部分。
+- 复用了自己过去的代码片段，但未在 PR 描述中注明来源。
+
+## 6. PR 提交规范
+
+- 必须基于 PR 添加新功能。
+- 每个 PR 只做一件事，只实现或修改单一功能。
+- 鼓励尽可能小、粒度尽可能细的 PR。
+- 大功能应拆分为多个独立 PR 分步提交。
+- PR 标题需用一句话说明本 PR 新增或修改了什么。
+- PR 描述需清晰完整，包含：
+  - 功能描述：说明该功能的作用与使用方式。
+  - 实现思路：简要说明技术选型或核心实现逻辑。
+  - 测试方式：说明如何验证该功能正常运行。
+- PR 合并后，主分支代码需保持可运行状态。
+- 评委在任意时间查看 `main` 分支时，应能复现演示效果。
+
+## 7. Demo 视频要求
+
+- 需用声音完整讲解。
+- 需展示作品主要功能和效果。
+- 需覆盖核心模块。
+- 需上传至可访问的外部平台，例如 bilibili、云盘等。
+- 视频链接需放到代码仓库 README 中。
+- 视频必须可播放。
+
+## 8. 多人组队与多模块要求
+
+- 若多人组队，每队仅需提交一个代码仓库地址。
+- 队员均须使用各自账号提交 commit。
+- PR 需清晰描述各自分工。
+- 如项目包含多个独立模块，应提交至同一仓库的不同子目录管理，例如 `/frontend` 与 `/backend`。
+- 仓库需在开题后创建。
+
+## 9. 知识产权与学术诚信
+
+- 除另行说明，作品知识产权归提交队伍或个人所有。
+- 需要遵守知识产权相关法规，不得侵犯他人知识产权或其他权益。
+- 不得未经相关单位许可对外共享或公开发布涉及该单位知识产权的作品及软件。
+- 如造成不良后果，相关法律责任由提交人自行承担，七牛云不负任何法律责任。
+- 必须遵守学术诚信。
+- 一经确认代码抄袭或技术抄袭等学术不端行为，或代码重复率在 50% 以上，将取消路演资格，并列入招聘黑名单。
+- 默认报名参与活动即同意七牛云公开作品源代码。
+- 七牛云拥有免费使用投递作品进行演示和出版的权利，但不涉及技术细节。
+- 如果以盈利为目的使用投递作品，需与作品归属队伍或个人协商，经同意后签署相关作品使用协议。
+
+## 10. 本项目执行要求
+
+本项目后续执行必须遵守：
+
+- 只通过 PR 合并新功能，不直接向 `main` 推送功能代码。
+- 每个 PR 保持单一目标。
+- PR 描述必须包含功能描述、实现思路和测试方式。
+- 每次合并前运行必要验证，至少包括 lint、typecheck、build；如无法运行必须在 PR 描述中说明原因。
+- README 持续维护依赖说明、启动方式、demo 视频链接和原创功能边界。
+- 设计文档持续维护用户故事和成本控制策略。
