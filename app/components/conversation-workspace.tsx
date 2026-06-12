@@ -235,6 +235,9 @@ export function ConversationWorkspace({
   clientConfig,
   onOpenSettings,
 }: ConversationWorkspaceProps) {
+  const [activeMenu, setActiveMenu] = useState<
+    "status" | "logs" | "cost" | null
+  >(null);
   const [sessionState, setSessionState] = useState<SessionState>("idle");
   const [isMuted, setIsMuted] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
@@ -767,6 +770,15 @@ export function ConversationWorkspace({
         </div>
         <nav className="topbar-menu" aria-label="应用菜单">
           <span className="build-tag">{clientConfig.visionModel}</span>
+          <button onClick={() => setActiveMenu("status")} type="button">
+            状态
+          </button>
+          <button onClick={() => setActiveMenu("logs")} type="button">
+            日志
+          </button>
+          <button onClick={() => setActiveMenu("cost")} type="button">
+            成本
+          </button>
           <button onClick={onOpenSettings} type="button">
             设置
           </button>
@@ -949,7 +961,27 @@ export function ConversationWorkspace({
           </section>
         </div>
 
-        <aside className="side-panel" aria-label="会话状态">
+        {activeMenu ? (
+          <div className="menu-backdrop" role="presentation">
+            <aside className="menu-drawer" aria-label="控制台菜单">
+              <div className="menu-drawer-header">
+                <div>
+                  <p className="eyebrow">Console</p>
+                  <h2>
+                    {activeMenu === "status"
+                      ? "状态"
+                      : activeMenu === "logs"
+                        ? "日志"
+                        : "成本"}
+                  </h2>
+                </div>
+                <button onClick={() => setActiveMenu(null)} type="button">
+                  关闭
+                </button>
+              </div>
+
+              {activeMenu === "status" ? (
+                <>
           <div className="status-grid">
             {statusItems.map((item) => (
               <div className="status-item" key={item.label}>
@@ -1046,7 +1078,10 @@ export function ConversationWorkspace({
               </dl>
             ) : null}
           </section>
+                </>
+              ) : null}
 
+              {activeMenu === "cost" ? (
           <section className="cost-panel" aria-label="成本控制">
             <div className="frame-panel-header">
               <strong>成本控制</strong>
@@ -1074,7 +1109,10 @@ export function ConversationWorkspace({
               摄像头画面只在用户触发视觉问题时抽帧分析，默认低细节输入，并复用短期视觉摘要。
             </p>
           </section>
+              ) : null}
 
+              {activeMenu === "logs" ? (
+                <>
           <section className="realtime-panel" aria-label="语音连接">
             <div className="frame-panel-header">
               <strong>{isPipelineMode ? "语音流水线" : "实时语音"}</strong>
@@ -1186,7 +1224,11 @@ export function ConversationWorkspace({
               </div>
             ))}
           </div>
-        </aside>
+                </>
+              ) : null}
+            </aside>
+          </div>
+        ) : null}
       </section>
     </main>
   );
