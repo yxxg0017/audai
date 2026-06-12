@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { checkRateLimit, rateLimitResponse } from "../../../lib/rate-limit";
+import {
+  getOpenAIRequestConfig,
+  missingApiKeyResponse,
+  type ApiConfigBody,
+} from "../../../lib/request-config";
 
 type OpenAIRealtimeClientSecretResponse = {
   client_secret?: {
@@ -21,21 +26,6 @@ type RealtimeSessionResponse = {
   transcriptionModel: string;
 };
 
-function getRealtimeModel() {
-  return process.env.OPENAI_REALTIME_MODEL?.trim() || "gpt-realtime-2";
-}
-
-function getRealtimeVoice() {
-  return process.env.OPENAI_REALTIME_VOICE?.trim() || "marin";
-}
-
-function getRealtimeTranscriptionModel() {
-  return (
-    process.env.OPENAI_REALTIME_TRANSCRIPTION_MODEL?.trim() ||
-    "gpt-4o-mini-transcribe"
-  );
-}
-
 function createSafetyIdentifier(request: NextRequest) {
   const configuredIdentifier = process.env.OPENAI_SAFETY_IDENTIFIER?.trim();
 
@@ -53,15 +43,6 @@ function createSafetyIdentifier(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const apiKey = process.env.OPENAI_API_KEY;
-
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: "服务端未配置 OPENAI_API_KEY，无法创建 Realtime 临时会话。" },
-      { status: 503 },
-    );
-  }
-
   const rateLimit = checkRateLimit(request, {
     namespace: "realtime-session",
     maxRequests: 12,
@@ -72,9 +53,23 @@ export async function POST(request: NextRequest) {
     return rateLimitResponse(rateLimit);
   }
 
-  const model = getRealtimeModel();
-  const voice = getRealtimeVoice();
-  const transcriptionModel = getRealtimeTranscriptionModel();
+  let requestBody: ApiConfigBody;
+
+  try {
+    requestBody = (await request.json()) as ApiConfigBody;
+  } catch {
+    requestBody = {};
+  }
+
+  const openaiConfig = getOpenAIRequestConfig(requestBody);
+
+  if (!openaiConfig.apiKey) {
+    return missingApiKeyResponse("创建 Realtime 临时会话");
+  }
+
+  const model = openaiConfig.realtimeModel;
+  const voice = openaiConfig.realtimeVoice;
+  const transcriptionModel = openaiConfig.realtimeTranscriptionModel;
   const safetyIdentifier = createSafetyIdentifier(request);
   const responsePayload = {
     session: {
@@ -113,10 +108,10 @@ export async function POST(request: NextRequest) {
   let response: Response;
 
   try {
-    response = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
+    response = await fetch(`${openaiConfig.baseUrl}/realtime/client_secrets`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${openaiConfig.apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(responsePayload),

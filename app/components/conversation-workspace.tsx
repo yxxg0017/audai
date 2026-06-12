@@ -361,6 +361,7 @@ export function ConversationWorkspace({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               imageDataUrl: frame.dataUrl,
+              openai: clientConfig,
               question: [
                 `用户刚刚语音提问：${trimmedQuestion}`,
                 "请提取当前画面中与问题相关的事实，控制在 120 字以内。",
@@ -437,6 +438,7 @@ export function ConversationWorkspace({
       }
     },
     [
+      clientConfig,
       connectionState,
       hasVideo,
       injectVisionContext,
@@ -559,7 +561,7 @@ export function ConversationWorkspace({
       ].slice(-6),
     );
 
-    const result = await connectRealtime(stream);
+    const result = await connectRealtime(stream, clientConfig);
 
     if (!result.ok) {
       const realtimeErrorMessage =
@@ -623,6 +625,7 @@ export function ConversationWorkspace({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           imageDataUrl: frame.dataUrl,
+          openai: clientConfig,
           question: visionQuestion,
         }),
       });
