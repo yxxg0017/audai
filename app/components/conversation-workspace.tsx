@@ -223,6 +223,8 @@ export function ConversationWorkspace() {
   const [visionContext, setVisionContext] = useState<VisionContext | null>(null);
   const [visionContextStatus, setVisionContextStatus] =
     useState("等待语音视觉问题");
+  const [visionRequestCount, setVisionRequestCount] = useState(0);
+  const [visionCacheHitCount, setVisionCacheHitCount] = useState(0);
   const handledTranscriptIdsRef = useRef<Set<string>>(new Set());
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -343,6 +345,7 @@ export function ConversationWorkspace() {
         if (!usedCachedContext) {
           const frame = await captureCompressedFrame(videoRef.current);
           setLatestFrame(frame);
+          setVisionRequestCount((current) => current + 1);
 
           const response = await fetch("/api/vision", {
             method: "POST",
@@ -376,6 +379,10 @@ export function ConversationWorkspace() {
 
         if (!context) {
           throw new Error("视觉上下文为空，无法注入 Realtime 会话。");
+        }
+
+        if (usedCachedContext) {
+          setVisionCacheHitCount((current) => current + 1);
         }
 
         const injected = injectVisionContext({
@@ -945,6 +952,34 @@ export function ConversationWorkspace() {
                 </div>
               </dl>
             ) : null}
+          </section>
+
+          <section className="cost-panel" aria-label="成本控制">
+            <div className="frame-panel-header">
+              <strong>成本控制</strong>
+              <span>按需调用</span>
+            </div>
+            <dl>
+              <div>
+                <dt>视觉请求</dt>
+                <dd>{visionRequestCount} 次</dd>
+              </div>
+              <div>
+                <dt>缓存命中</dt>
+                <dd>{visionCacheHitCount} 次</dd>
+              </div>
+              <div>
+                <dt>最近图片</dt>
+                <dd>{latestFrame ? formatBytes(latestFrame.sizeBytes) : "暂无"}</dd>
+              </div>
+              <div>
+                <dt>缓存窗口</dt>
+                <dd>{Math.round(visionContextTtlMs / 1000)} 秒</dd>
+              </div>
+            </dl>
+            <p>
+              摄像头画面只在用户触发视觉问题时抽帧分析，默认低细节输入，并复用短期视觉摘要。
+            </p>
           </section>
 
           <section className="realtime-panel" aria-label="实时语音连接">

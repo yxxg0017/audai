@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { checkRateLimit, rateLimitResponse } from "../../lib/rate-limit";
 
 type VisionRequestBody = {
   imageDataUrl?: unknown;
@@ -52,6 +53,16 @@ export async function POST(request: NextRequest) {
       { error: "服务端未配置 OPENAI_API_KEY，无法进行视觉分析。" },
       { status: 503 },
     );
+  }
+
+  const rateLimit = checkRateLimit(request, {
+    namespace: "vision",
+    maxRequests: 20,
+    windowMs: 60 * 60 * 1000,
+  });
+
+  if (!rateLimit.allowed) {
+    return rateLimitResponse(rateLimit);
   }
 
   let body: VisionRequestBody;
