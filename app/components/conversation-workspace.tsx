@@ -33,12 +33,45 @@ const sessionOrder: SessionState[] = [
 ];
 const defaultVisionQuestion =
   "请用中文简要描述画面中的主要内容，并指出需要注意的细节。";
+const visualIntentKeywords = [
+  "画面",
+  "看到",
+  "看见",
+  "面前",
+  "镜头",
+  "摄像头",
+  "这是什么",
+  "有什么",
+  "桌上",
+  "手里",
+];
+const visionContextTtlMs = 60_000;
 
 type VisionApiResponse = {
   analysis?: string;
   model?: string;
   error?: string;
 };
+
+type VisionContext = {
+  summary: string;
+  question: string;
+  model: string | null;
+  capturedAt: number;
+  sizeBytes: number;
+};
+
+function shouldUseVisionForTranscript(text: string) {
+  const normalizedText = text.trim().toLowerCase();
+
+  return visualIntentKeywords.some((keyword) =>
+    normalizedText.includes(keyword.toLowerCase()),
+  );
+}
+
+function isFreshVisionContext(context: VisionContext | null) {
+  return Boolean(context && Date.now() - context.capturedAt < visionContextTtlMs);
+}
 
 function createMessage(state: SessionState, action: SessionAction): ChatMessage {
   const messageByState: Record<SessionState, string> = {
@@ -187,6 +220,10 @@ export function ConversationWorkspace() {
   const [visionAnalysis, setVisionAnalysis] = useState<string | null>(null);
   const [visionModel, setVisionModel] = useState<string | null>(null);
   const [isVisionLoading, setIsVisionLoading] = useState(false);
+  const [visionContext, setVisionContext] = useState<VisionContext | null>(null);
+  const [visionContextStatus, setVisionContextStatus] =
+    useState("等待语音视觉问题");
+  const handledTranscriptIdsRef = useRef<Set<string>>(new Set());
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const {
@@ -211,6 +248,7 @@ export function ConversationWorkspace() {
     transcripts,
     events: realtimeEvents,
     cancelResponse,
+    injectVisionContext,
     connect: connectRealtime,
     disconnect: disconnectRealtime,
   } = useRealtimeAudio();
@@ -268,6 +306,10 @@ export function ConversationWorkspace() {
     sessionState,
   );
   const currentStep = sessionOrder.indexOf(displayedSessionState);
+  const latestUserTranscript = transcripts.find(
+    (transcript) =>
+      transcript.role === "user" && transcript.status === "complete",
+  );
 
   const appendInteraction = useCallback((nextState: SessionState, action: SessionAction) => {
     setMessages((current) => [...current, createMessage(nextState, action)].slice(-6));
@@ -275,6 +317,117 @@ export function ConversationWorkspace() {
       [createTimelineEvent(nextState, action), ...current].slice(0, 5),
     );
   }, []);
+
+  const analyzeAndInjectVisionContext = useCallback(
+    async (question: string, source: "voice" | "manual") => {
+      const trimmedQuestion = question.trim() || defaultVisionQuestion;
+
+      if (connectionState !== "connected") {
+        setVisionContextStatus("请先连接 Realtime 语音，再发送视觉上下文。");
+        return;
+      }
+
+      if (!videoRef.current || !stream || !hasVideo) {
+        setVisionContextStatus("请先开始摄像头采集，再发送视觉上下文。");
+        return;
+      }
+
+      setVisionContextStatus(
+        source === "voice" ? "检测到视觉问题，准备上下文。" : "正在准备视觉上下文。",
+      );
+
+      try {
+        let context = visionContext;
+        let usedCachedContext = isFreshVisionContext(context);
+
+        if (!usedCachedContext) {
+          const frame = await captureCompressedFrame(videoRef.current);
+          setLatestFrame(frame);
+
+          const response = await fetch("/api/vision", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              imageDataUrl: frame.dataUrl,
+              question: [
+                `用户刚刚语音提问：${trimmedQuestion}`,
+                "请提取当前画面中与问题相关的事实，控制在 120 字以内。",
+              ].join("\n"),
+            }),
+          });
+          const payload = (await response.json()) as VisionApiResponse;
+
+          if (!response.ok || !payload.analysis) {
+            throw new Error(payload.error ?? "视觉上下文生成失败。");
+          }
+
+          context = {
+            summary: payload.analysis,
+            question: trimmedQuestion,
+            model: payload.model ?? null,
+            capturedAt: Date.now(),
+            sizeBytes: frame.sizeBytes,
+          };
+          setVisionContext(context);
+          setVisionAnalysis(payload.analysis);
+          setVisionModel(payload.model ?? null);
+          usedCachedContext = false;
+        }
+
+        if (!context) {
+          throw new Error("视觉上下文为空，无法注入 Realtime 会话。");
+        }
+
+        const injected = injectVisionContext({
+          summary: context.summary,
+          userQuestion: trimmedQuestion,
+        });
+
+        if (!injected) {
+          setVisionContextStatus("Realtime data channel 未就绪，视觉上下文未发送。");
+          return;
+        }
+
+        setVisionContextStatus(
+          usedCachedContext
+            ? "已发送缓存视觉上下文。"
+            : "已发送新的视觉上下文。",
+        );
+        setTimeline((current) =>
+          [
+            {
+              id: `vision-context-${Date.now()}`,
+              label: "视觉上下文",
+              detail: `${context.model ?? "model"}，${formatBytes(context.sizeBytes)}，已注入语音会话`,
+            },
+            ...current,
+          ].slice(0, 5),
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "视觉上下文生成失败。";
+        setVisionContextStatus(message);
+        setMessages((current) =>
+          [
+            ...current,
+            {
+              id: `vision-context-error-${Date.now()}`,
+              role: "system",
+              content: message,
+              status: "complete",
+            } satisfies ChatMessage,
+          ].slice(-6),
+        );
+      }
+    },
+    [
+      connectionState,
+      hasVideo,
+      injectVisionContext,
+      stream,
+      visionContext,
+    ],
+  );
 
   async function handleStart() {
     setSessionState("connecting");
@@ -527,6 +680,29 @@ export function ConversationWorkspace() {
     });
   }, [isMuted, stream]);
 
+  useEffect(() => {
+    if (!latestUserTranscript) {
+      return;
+    }
+
+    if (handledTranscriptIdsRef.current.has(latestUserTranscript.id)) {
+      return;
+    }
+
+    handledTranscriptIdsRef.current.add(latestUserTranscript.id);
+
+    if (!shouldUseVisionForTranscript(latestUserTranscript.text)) {
+      queueMicrotask(() => {
+        setVisionContextStatus("最近语音问题未触发视觉上下文。");
+      });
+      return;
+    }
+
+    queueMicrotask(() => {
+      void analyzeAndInjectVisionContext(latestUserTranscript.text, "voice");
+    });
+  }, [analyzeAndInjectVisionContext, latestUserTranscript]);
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -619,6 +795,23 @@ export function ConversationWorkspace() {
               disabled={!stream || !hasVideo || isVisionLoading || sessionState === "error"}
             >
               {isVisionLoading ? "分析中" : "分析画面"}
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                void analyzeAndInjectVisionContext(
+                  latestUserTranscript?.text ?? visionQuestion,
+                  "manual",
+                )
+              }
+              disabled={
+                !stream ||
+                !hasVideo ||
+                connectionState !== "connected" ||
+                isVisionLoading
+              }
+            >
+              发送上下文
             </button>
             <button type="button" onClick={() => handleAction("fail")}>
               模拟异常
@@ -730,6 +923,28 @@ export function ConversationWorkspace() {
                 ? "正在分析本地压缩帧。"
                 : visionAnalysis ?? frameError ?? "分析画面后，这里会显示模型返回的视觉理解结果。"}
             </p>
+          </section>
+
+          <section className="vision-context-panel" aria-label="语音视觉上下文">
+            <div className="frame-panel-header">
+              <strong>语音视觉上下文</strong>
+              <span>
+                {isFreshVisionContext(visionContext) ? "缓存可用" : "待生成"}
+              </span>
+            </div>
+            <p>{visionContextStatus}</p>
+            {visionContext ? (
+              <dl>
+                <div>
+                  <dt>问题</dt>
+                  <dd>{visionContext.question}</dd>
+                </div>
+                <div>
+                  <dt>体积</dt>
+                  <dd>{formatBytes(visionContext.sizeBytes)}</dd>
+                </div>
+              </dl>
+            ) : null}
           </section>
 
           <section className="realtime-panel" aria-label="实时语音连接">

@@ -54,6 +54,16 @@ type RealtimeServerEvent = {
   };
 };
 
+type RealtimeClientEvent = {
+  type: string;
+  [key: string]: unknown;
+};
+
+type VisionContextPayload = {
+  userQuestion: string;
+  summary: string;
+};
+
 function getEventSummary(payload: RealtimeServerEvent) {
   if (payload.error?.message) {
     return payload.error.message;
@@ -146,6 +156,75 @@ export function useRealtimeAudio() {
 
     dataChannel.send(JSON.stringify({ type: "response.cancel" }));
   }, []);
+
+  const sendClientEvent = useCallback((payload: RealtimeClientEvent) => {
+    const dataChannel = dataChannelRef.current;
+
+    if (!dataChannel || dataChannel.readyState !== "open") {
+      setErrorMessage("Realtime data channel 尚未就绪，无法发送上下文。");
+      return false;
+    }
+
+    dataChannel.send(JSON.stringify(payload));
+    appendEvent({
+      type: `client.${payload.type}`,
+      event_id:
+        typeof payload.event_id === "string" ? payload.event_id : undefined,
+    });
+    return true;
+  }, [appendEvent]);
+
+  const injectVisionContext = useCallback(
+    ({ summary, userQuestion }: VisionContextPayload) => {
+      const trimmedSummary = summary.trim();
+      const trimmedQuestion = userQuestion.trim();
+
+      if (!trimmedSummary || !trimmedQuestion) {
+        setErrorMessage("视觉上下文或用户问题为空，无法注入 Realtime 会话。");
+        return false;
+      }
+
+      if (turnStateRef.current === "assistant_speaking") {
+        cancelResponse();
+        setInterruptionCount((current) => current + 1);
+      }
+
+      const contextText = [
+        "以下是用户当前摄像头画面的视觉上下文，请结合它回答用户刚才的语音问题。",
+        `用户语音问题：${trimmedQuestion}`,
+        `视觉上下文：${trimmedSummary}`,
+        "回答要求：使用简洁中文，优先回答用户问题，不要提到你收到了额外上下文。",
+      ].join("\n");
+      const eventId = `vision-context-${Date.now()}`;
+      const itemCreated = sendClientEvent({
+        type: "conversation.item.create",
+        event_id: eventId,
+        item: {
+          type: "message",
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: contextText,
+            },
+          ],
+        },
+      });
+
+      if (!itemCreated) {
+        return false;
+      }
+
+      return sendClientEvent({
+        type: "response.create",
+        event_id: `vision-response-${Date.now()}`,
+        response: {
+          instructions: "请结合最新视觉上下文回答用户刚才的问题。",
+        },
+      });
+    },
+    [cancelResponse, sendClientEvent],
+  );
 
   const handleRealtimeEvent = useCallback(
     (payload: RealtimeServerEvent) => {
@@ -399,6 +478,7 @@ export function useRealtimeAudio() {
     transcripts,
     events,
     cancelResponse,
+    injectVisionContext,
     connect,
     disconnect,
   };

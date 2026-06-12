@@ -342,6 +342,7 @@ h1 {
 .state-track,
 .frame-panel,
 .vision-result,
+.vision-context-panel,
 .realtime-panel {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -434,6 +435,7 @@ h1 {
 }
 
 .vision-result,
+.vision-context-panel,
 .realtime-panel {
   padding: 12px;
 }
@@ -468,6 +470,7 @@ h1 {
 }
 
 .frame-panel dl,
+.vision-context-panel dl,
 .realtime-panel dl {
   margin: 12px 0 0;
   display: grid;
@@ -476,6 +479,7 @@ h1 {
 }
 
 .frame-panel dl div,
+.vision-context-panel dl div,
 .realtime-panel dl div {
   min-height: 58px;
   padding: 10px;
@@ -485,6 +489,7 @@ h1 {
 }
 
 .frame-panel dt,
+.vision-context-panel dt,
 .realtime-panel dt {
   margin: 0 0 6px;
   color: var(--muted);
@@ -492,6 +497,7 @@ h1 {
 }
 
 .frame-panel dd,
+.vision-context-panel dd,
 .realtime-panel dd {
   margin: 0;
   color: var(--ink);
@@ -508,6 +514,7 @@ h1 {
 }
 
 .vision-result p,
+.vision-context-panel p,
 .realtime-panel p {
   margin: 0;
   white-space: pre-wrap;
