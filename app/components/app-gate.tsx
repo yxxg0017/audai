@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   clearClientConfig,
   defaultClientConfig,
@@ -145,27 +145,14 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
 }
 
 export function AppGate() {
-  const [config, setConfig] = useState<ClientConfig>(defaultClientConfig);
+  const [config, setConfig] = useState<ClientConfig>(() => loadClientConfig());
   const [showSettings, setShowSettings] = useState(false);
   const [savedConfigRevision, setSavedConfigRevision] = useState(0);
-  const [hasStoredConfig, setHasStoredConfig] = useState(false);
-  const [hasCheckedStorage, setHasCheckedStorage] = useState(false);
   const isReady = isClientConfigReady(config);
-
-  useEffect(() => {
-    queueMicrotask(() => {
-      const storedConfig = loadClientConfig();
-      setConfig(storedConfig);
-      setHasStoredConfig(isClientConfigReady(storedConfig));
-      setHasCheckedStorage(true);
-    });
-  }, []);
 
   function handleSave(nextConfig: ClientConfig) {
     saveClientConfig(nextConfig);
     setConfig(nextConfig);
-    setHasStoredConfig(isClientConfigReady(nextConfig));
-    setHasCheckedStorage(true);
     setSavedConfigRevision((current) => current + 1);
     setShowSettings(false);
   }
@@ -173,23 +160,10 @@ export function AppGate() {
   function handleClear() {
     clearClientConfig();
     setConfig(defaultClientConfig);
-    setHasStoredConfig(false);
-    setHasCheckedStorage(true);
     setShowSettings(false);
   }
 
-  if (!hasCheckedStorage) {
-    return (
-      <main className="config-shell">
-        <section className="config-card">
-          <p className="eyebrow">Audai</p>
-          <h1>正在检测本地配置</h1>
-        </section>
-      </main>
-    );
-  }
-
-  if (!hasStoredConfig || !isReady) {
+  if (!isReady) {
     return (
       <main className="config-shell">
         <section className="config-card">
