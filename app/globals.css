@@ -36,6 +36,23 @@ select {
   font: inherit;
 }
 
+textarea {
+  width: 100%;
+  min-height: 84px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--ink);
+  padding: 10px 12px;
+  line-height: 1.5;
+}
+
+textarea:focus {
+  border-color: var(--accent);
+  outline: 2px solid rgb(15 118 110 / 18%);
+}
+
 button {
   min-width: 88px;
   height: 40px;
@@ -237,6 +254,22 @@ h1 {
   background: var(--panel);
 }
 
+.vision-question {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.vision-question span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .conversation-panel {
   min-height: 220px;
   padding: 12px;
@@ -307,7 +340,8 @@ h1 {
 .status-grid,
 .timeline,
 .state-track,
-.frame-panel {
+.frame-panel,
+.vision-result {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
@@ -398,6 +432,10 @@ h1 {
   padding: 12px;
 }
 
+.vision-result {
+  padding: 12px;
+}
+
 .frame-panel-header {
   min-height: 32px;
   display: flex;
@@ -461,6 +499,14 @@ h1 {
   color: var(--muted);
   font-size: 14px;
   line-height: 1.5;
+}
+
+.vision-result p {
+  margin: 0;
+  white-space: pre-wrap;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 .timeline {
