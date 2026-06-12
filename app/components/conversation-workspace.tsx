@@ -22,6 +22,7 @@ import {
   type RealtimeConnectionState,
   type RealtimeTurnState,
 } from "../lib/use-realtime-audio";
+import type { ClientConfig } from "../lib/client-config";
 
 const sessionOrder: SessionState[] = [
   "idle",
@@ -209,7 +210,15 @@ function formatBytes(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
 }
 
-export function ConversationWorkspace() {
+type ConversationWorkspaceProps = {
+  clientConfig: ClientConfig;
+  onOpenSettings: () => void;
+};
+
+export function ConversationWorkspace({
+  clientConfig,
+  onOpenSettings,
+}: ConversationWorkspaceProps) {
   const [sessionState, setSessionState] = useState<SessionState>("idle");
   const [isMuted, setIsMuted] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
@@ -717,7 +726,12 @@ export function ConversationWorkspace() {
           <p className="eyebrow">Audai</p>
           <h1>AI 视觉对话助手</h1>
         </div>
-        <div className="build-tag">Final</div>
+        <nav className="topbar-menu" aria-label="应用菜单">
+          <span className="build-tag">{clientConfig.visionModel}</span>
+          <button onClick={onOpenSettings} type="button">
+            设置
+          </button>
+        </nav>
       </header>
 
       <section className="workspace" aria-label="对话工作区">
