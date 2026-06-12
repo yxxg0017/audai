@@ -23,6 +23,8 @@ import {
   type RealtimeTurnState,
 } from "../lib/use-realtime-audio";
 import type { ClientConfig } from "../lib/client-config";
+import { useVoicePipeline } from "../lib/use-voice-pipeline";
+import type { VoicePipelineState } from "../lib/use-voice-pipeline";
 
 const sessionOrder: SessionState[] = [
   "idle",
@@ -198,6 +200,20 @@ function getSessionStateFromRealtime(
   return stateByRealtimeTurn[turnState] ?? fallbackState;
 }
 
+function getSessionStateFromPipeline(
+  pipelineState: VoicePipelineState,
+  fallbackState: SessionState,
+) {
+  const stateByPipeline: Partial<Record<VoicePipelineState, SessionState>> = {
+    listening: "listening",
+    thinking: "thinking",
+    speaking: "speaking",
+    error: "error",
+  };
+
+  return stateByPipeline[pipelineState] ?? fallbackState;
+}
+
 function formatBytes(bytes: number) {
   if (bytes < 1024) {
     return `${bytes} B`;
@@ -263,6 +279,8 @@ export function ConversationWorkspace({
     connect: connectRealtime,
     disconnect: disconnectRealtime,
   } = useRealtimeAudio();
+  const voicePipeline = useVoicePipeline();
+  const isPipelineMode = clientConfig.voiceMode === "pipeline";
 
   useEffect(() => {
     if (videoRef.current) {
@@ -285,8 +303,9 @@ export function ConversationWorkspace({
       },
       {
         label: "实时会话",
-        value:
-          connectionState === "connected"
+        value: isPipelineMode
+          ? `流水线 ${voicePipeline.state}`
+          : connectionState === "connected"
             ? getRealtimeTurnStatus(turnState)
             : getRealtimeStatus(connectionState),
       },
@@ -307,15 +326,15 @@ export function ConversationWorkspace({
       latestFrame,
       permissionState,
       connectionState,
+      isPipelineMode,
       turnState,
+      voicePipeline.state,
     ],
   );
 
-  const displayedSessionState = getSessionStateFromRealtime(
-    connectionState,
-    turnState,
-    sessionState,
-  );
+  const displayedSessionState = isPipelineMode
+    ? getSessionStateFromPipeline(voicePipeline.state, sessionState)
+    : getSessionStateFromRealtime(connectionState, turnState, sessionState);
   const currentStep = sessionOrder.indexOf(displayedSessionState);
   const latestUserTranscript = transcripts.find(
     (transcript) =>
@@ -333,14 +352,14 @@ export function ConversationWorkspace({
     async (question: string, source: "voice" | "manual") => {
       const trimmedQuestion = question.trim() || defaultVisionQuestion;
 
-      if (connectionState !== "connected") {
+      if (!isPipelineMode && connectionState !== "connected") {
         setVisionContextStatus("请先连接 Realtime 语音，再发送视觉上下文。");
-        return;
+        return undefined;
       }
 
       if (!videoRef.current || !stream || !hasVideo) {
         setVisionContextStatus("请先开始摄像头采集，再发送视觉上下文。");
-        return;
+        return undefined;
       }
 
       setVisionContextStatus(
@@ -395,6 +414,15 @@ export function ConversationWorkspace({
           setVisionCacheHitCount((current) => current + 1);
         }
 
+        if (isPipelineMode) {
+          setVisionContextStatus(
+            usedCachedContext
+              ? "已准备缓存视觉上下文。"
+              : "已准备新的视觉上下文。",
+          );
+          return context.summary;
+        }
+
         const injected = injectVisionContext({
           summary: context.summary,
           userQuestion: trimmedQuestion,
@@ -402,7 +430,7 @@ export function ConversationWorkspace({
 
         if (!injected) {
           setVisionContextStatus("Realtime data channel 未就绪，视觉上下文未发送。");
-          return;
+          return undefined;
         }
 
         setVisionContextStatus(
@@ -420,6 +448,7 @@ export function ConversationWorkspace({
             ...current,
           ].slice(0, 5),
         );
+        return context.summary;
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "视觉上下文生成失败。";
@@ -435,6 +464,7 @@ export function ConversationWorkspace({
             } satisfies ChatMessage,
           ].slice(-6),
         );
+        return undefined;
       }
     },
     [
@@ -442,6 +472,7 @@ export function ConversationWorkspace({
       connectionState,
       hasVideo,
       injectVisionContext,
+      isPipelineMode,
       stream,
       visionContext,
     ],
@@ -495,6 +526,7 @@ export function ConversationWorkspace({
 
   function handleStop() {
     disconnectRealtime();
+    voicePipeline.stop();
     stopMedia();
     setIsMuted(false);
     setSessionState("idle");
@@ -700,6 +732,10 @@ export function ConversationWorkspace({
   }, [isMuted, stream]);
 
   useEffect(() => {
+    if (isPipelineMode) {
+      return;
+    }
+
     if (!latestUserTranscript) {
       return;
     }
@@ -720,7 +756,7 @@ export function ConversationWorkspace({
     queueMicrotask(() => {
       void analyzeAndInjectVisionContext(latestUserTranscript.text, "voice");
     });
-  }, [analyzeAndInjectVisionContext, latestUserTranscript]);
+  }, [analyzeAndInjectVisionContext, isPipelineMode, latestUserTranscript]);
 
   return (
     <main className="app-shell">
@@ -784,35 +820,63 @@ export function ConversationWorkspace({
             >
               {isMuted ? "取消静音" : "静音"}
             </button>
-            <button
-              type="button"
-              onClick={handleConnectRealtime}
-              disabled={
-                !stream ||
-                !hasAudio ||
-                connectionState === "connecting" ||
-                connectionState === "connected"
-              }
-            >
-              {connectionState === "connected" ? "语音已连接" : "连接语音"}
-            </button>
-            <button
-              type="button"
-              onClick={handleCancelRealtimeResponse}
-              disabled={
-                connectionState !== "connected" ||
-                turnState !== "assistant_speaking"
-              }
-            >
-              中断回复
-            </button>
-            <button
-              type="button"
-              onClick={handleDisconnectRealtime}
-              disabled={connectionState !== "connected"}
-            >
-              断开语音
-            </button>
+            {isPipelineMode ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() =>
+                    voicePipeline.start({
+                      clientConfig,
+                      onFinalTranscript: async (text) => {
+                        if (!shouldUseVisionForTranscript(text)) {
+                          return undefined;
+                        }
+
+                        return analyzeAndInjectVisionContext(text, "voice");
+                      },
+                    })
+                  }
+                  disabled={!stream || !hasAudio || sessionState === "connecting"}
+                >
+                  {voicePipeline.state === "listening" ? "语音监听中" : "开始语音"}
+                </button>
+                <button type="button" onClick={voicePipeline.stop}>
+                  停止语音
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={handleConnectRealtime}
+                  disabled={
+                    !stream ||
+                    !hasAudio ||
+                    connectionState === "connecting" ||
+                    connectionState === "connected"
+                  }
+                >
+                  {connectionState === "connected" ? "语音已连接" : "连接语音"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCancelRealtimeResponse}
+                  disabled={
+                    connectionState !== "connected" ||
+                    turnState !== "assistant_speaking"
+                  }
+                >
+                  中断回复
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDisconnectRealtime}
+                  disabled={connectionState !== "connected"}
+                >
+                  断开语音
+                </button>
+              </>
+            )}
             <button
               type="button"
               onClick={handleAnalyzeFrame}
@@ -822,16 +886,28 @@ export function ConversationWorkspace({
             </button>
             <button
               type="button"
-              onClick={() =>
-                void analyzeAndInjectVisionContext(
-                  latestUserTranscript?.text ?? visionQuestion,
-                  "manual",
-                )
-              }
+              onClick={() => {
+                const question = latestUserTranscript?.text ?? visionQuestion;
+
+                void (async () => {
+                  const visualContext = await analyzeAndInjectVisionContext(
+                    question,
+                    "manual",
+                  );
+
+                  if (isPipelineMode) {
+                    await voicePipeline.ask({
+                      clientConfig,
+                      message: question,
+                      visualContext,
+                    });
+                  }
+                })();
+              }}
               disabled={
                 !stream ||
                 !hasVideo ||
-                connectionState !== "connected" ||
+                (!isPipelineMode && connectionState !== "connected") ||
                 isVisionLoading
               }
             >
@@ -999,36 +1075,80 @@ export function ConversationWorkspace({
             </p>
           </section>
 
-          <section className="realtime-panel" aria-label="实时语音连接">
+          <section className="realtime-panel" aria-label="语音连接">
             <div className="frame-panel-header">
-              <strong>实时语音</strong>
-              <span>{getRealtimeStatus(connectionState)}</span>
+              <strong>{isPipelineMode ? "语音流水线" : "实时语音"}</strong>
+              <span>
+                {isPipelineMode
+                  ? voicePipeline.state
+                  : getRealtimeStatus(connectionState)}
+              </span>
             </div>
-            <dl>
-              <div>
-                <dt>模型</dt>
-                <dd>{realtimeModel ?? "待连接"}</dd>
-              </div>
-              <div>
-                <dt>声音</dt>
-                <dd>{realtimeVoice ?? "待连接"}</dd>
-              </div>
-              <div>
-                <dt>转写</dt>
-                <dd>{transcriptionModel ?? "待连接"}</dd>
-              </div>
-              <div>
-                <dt>插话</dt>
-                <dd>{interruptionCount} 次</dd>
-              </div>
-            </dl>
+            {isPipelineMode ? (
+              <dl>
+                <div>
+                  <dt>STT</dt>
+                  <dd>浏览器语音识别</dd>
+                </div>
+                <div>
+                  <dt>LLM</dt>
+                  <dd>{voicePipeline.model ?? clientConfig.chatModel}</dd>
+                </div>
+                <div>
+                  <dt>TTS</dt>
+                  <dd>浏览器语音合成</dd>
+                </div>
+                <div>
+                  <dt>模式</dt>
+                  <dd>语音流水线</dd>
+                </div>
+              </dl>
+            ) : (
+              <dl>
+                <div>
+                  <dt>模型</dt>
+                  <dd>{realtimeModel ?? "待连接"}</dd>
+                </div>
+                <div>
+                  <dt>声音</dt>
+                  <dd>{realtimeVoice ?? "待连接"}</dd>
+                </div>
+                <div>
+                  <dt>转写</dt>
+                  <dd>{transcriptionModel ?? "待连接"}</dd>
+                </div>
+                <div>
+                  <dt>插话</dt>
+                  <dd>{interruptionCount} 次</dd>
+                </div>
+              </dl>
+            )}
             <p>
-              {realtimeError ??
-                (connectionState === "connected"
-                  ? `麦克风音频正在通过 WebRTC 发送，当前回合：${getRealtimeTurnStatus(turnState)}。`
-                  : "开始本地采集后，可连接 Realtime 语音。")}
+              {isPipelineMode
+                ? voicePipeline.errorMessage ??
+                  "浏览器完成语音识别和语音播放，文本回复由 Responses API 生成。"
+                : realtimeError ??
+                  (connectionState === "connected"
+                    ? `麦克风音频正在通过 WebRTC 发送，当前回合：${getRealtimeTurnStatus(turnState)}。`
+                    : "开始本地采集后，可连接 Realtime 语音。")}
             </p>
-            {transcripts.length > 0 ? (
+            {isPipelineMode && (voicePipeline.lastTranscript || voicePipeline.lastAnswer) ? (
+              <div className="transcript-list" aria-label="语音流水线转写">
+                {voicePipeline.lastTranscript ? (
+                  <article className="transcript-item transcript-user">
+                    <span>用户</span>
+                    <p>{voicePipeline.lastTranscript}</p>
+                  </article>
+                ) : null}
+                {voicePipeline.lastAnswer ? (
+                  <article className="transcript-item transcript-assistant">
+                    <span>AI</span>
+                    <p>{voicePipeline.lastAnswer}</p>
+                  </article>
+                ) : null}
+              </div>
+            ) : null}
+            {!isPipelineMode && transcripts.length > 0 ? (
               <div className="transcript-list" aria-label="实时转写">
                 {transcripts.slice(0, 4).map((transcript) => (
                   <article
@@ -1044,7 +1164,7 @@ export function ConversationWorkspace({
                 ))}
               </div>
             ) : null}
-            {realtimeEvents.length > 0 ? (
+            {!isPipelineMode && realtimeEvents.length > 0 ? (
               <ul>
                 {realtimeEvents.slice(0, 4).map((event) => (
                   <li key={event.id} title={event.summary}>
