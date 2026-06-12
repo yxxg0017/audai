@@ -3,6 +3,8 @@
 export type ClientConfig = {
   apiKey: string;
   baseUrl: string;
+  voiceMode: "pipeline" | "realtime";
+  chatModel: string;
   realtimeModel: string;
   realtimeVoice: string;
   realtimeTranscriptionModel: string;
@@ -12,6 +14,8 @@ export type ClientConfig = {
 export const defaultClientConfig: ClientConfig = {
   apiKey: "",
   baseUrl: "https://api.openai.com/v1",
+  voiceMode: "pipeline",
+  chatModel: "gpt-5.5",
   realtimeModel: "gpt-realtime-2",
   realtimeVoice: "marin",
   realtimeTranscriptionModel: "gpt-4o-mini-transcribe",
@@ -34,6 +38,8 @@ export function normalizeClientConfig(config: Partial<ClientConfig>): ClientConf
   return {
     apiKey: config.apiKey?.trim() ?? "",
     baseUrl: sanitizeBaseUrl(config.baseUrl ?? defaultClientConfig.baseUrl),
+    voiceMode: config.voiceMode === "realtime" ? "realtime" : "pipeline",
+    chatModel: config.chatModel?.trim() || defaultClientConfig.chatModel,
     realtimeModel:
       config.realtimeModel?.trim() || defaultClientConfig.realtimeModel,
     realtimeVoice:

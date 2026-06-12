@@ -7,6 +7,7 @@ export type ApiConfigBody = {
 type OpenAIRequestConfig = {
   apiKey: string;
   baseUrl: string;
+  chatModel: string;
   visionModel: string;
   realtimeModel: string;
   realtimeVoice: string;
@@ -31,6 +32,10 @@ export function getOpenAIRequestConfig(body: ApiConfigBody) {
   const config: OpenAIRequestConfig = {
     apiKey,
     baseUrl: sanitizeBaseUrl(readString(openai.baseUrl) || defaultBaseUrl),
+    chatModel:
+      readString(openai.chatModel) ||
+      process.env.OPENAI_CHAT_MODEL?.trim() ||
+      "gpt-5.5",
     visionModel:
       readString(openai.visionModel) ||
       process.env.OPENAI_VISION_MODEL?.trim() ||
