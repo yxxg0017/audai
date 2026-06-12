@@ -49,6 +49,7 @@ const visualIntentKeywords = [
   "手里",
 ];
 const visionContextTtlMs = 60_000;
+const maxMessageHistory = 80;
 
 type VisionApiResponse = {
   analysis?: string;
@@ -92,6 +93,10 @@ function createMessage(state: SessionState, action: SessionAction): ChatMessage 
     content: messageByState[state],
     status: state === "speaking" ? "streaming" : "complete",
   };
+}
+
+function keepMessageHistory(messages: ChatMessage[]) {
+  return messages.slice(-maxMessageHistory);
 }
 
 function createTimelineEvent(
@@ -345,9 +350,31 @@ export function ConversationWorkspace({
   );
 
   const appendInteraction = useCallback((nextState: SessionState, action: SessionAction) => {
-    setMessages((current) => [...current, createMessage(nextState, action)].slice(-6));
+    setMessages((current) =>
+      keepMessageHistory([...current, createMessage(nextState, action)]),
+    );
     setTimeline((current) =>
       [createTimelineEvent(nextState, action), ...current].slice(0, 5),
+    );
+  }, []);
+
+  const appendPipelineExchange = useCallback((question: string, answer: string) => {
+    setMessages((current) =>
+      keepMessageHistory([
+        ...current,
+        {
+          id: `pipeline-user-${Date.now()}`,
+          role: "user",
+          content: question,
+          status: "complete",
+        },
+        {
+          id: `pipeline-assistant-${Date.now()}`,
+          role: "assistant",
+          content: answer,
+          status: "complete",
+        },
+      ]),
     );
   }, []);
 
@@ -457,7 +484,7 @@ export function ConversationWorkspace({
           error instanceof Error ? error.message : "视觉上下文生成失败。";
         setVisionContextStatus(message);
         setMessages((current) =>
-          [
+          keepMessageHistory([
             ...current,
             {
               id: `vision-context-error-${Date.now()}`,
@@ -465,7 +492,7 @@ export function ConversationWorkspace({
               content: message,
               status: "complete",
             } satisfies ChatMessage,
-          ].slice(-6),
+          ]),
         );
         return undefined;
       }
@@ -484,7 +511,7 @@ export function ConversationWorkspace({
   async function handleStart() {
     setSessionState("connecting");
     setMessages((current) =>
-      [
+      keepMessageHistory([
         ...current,
         {
           id: `media-request-${Date.now()}`,
@@ -492,7 +519,7 @@ export function ConversationWorkspace({
           content: "正在请求摄像头和麦克风权限。音视频不会上传到服务器。",
           status: "complete",
         } satisfies ChatMessage,
-      ].slice(-6),
+      ]),
     );
 
     const result = await startMedia();
@@ -505,7 +532,7 @@ export function ConversationWorkspace({
 
     setSessionState("error");
     setMessages((current) =>
-      [
+      keepMessageHistory([
         ...current,
         {
           id: `media-error-${Date.now()}`,
@@ -513,7 +540,7 @@ export function ConversationWorkspace({
           content: result.errorMessage,
           status: "complete",
         } satisfies ChatMessage,
-      ].slice(-6),
+      ]),
     );
     setTimeline((current) =>
       [
@@ -570,7 +597,7 @@ export function ConversationWorkspace({
     if (!stream || !hasAudio) {
       setSessionState("error");
       setMessages((current) =>
-        [
+        keepMessageHistory([
           ...current,
           {
             id: `realtime-no-audio-${Date.now()}`,
@@ -578,14 +605,14 @@ export function ConversationWorkspace({
             content: "请先开始本地麦克风采集，再连接实时语音。",
             status: "complete",
           } satisfies ChatMessage,
-        ].slice(-6),
+        ]),
       );
       return;
     }
 
     setSessionState("connecting");
     setMessages((current) =>
-      [
+      keepMessageHistory([
         ...current,
         {
           id: `realtime-connect-${Date.now()}`,
@@ -593,7 +620,7 @@ export function ConversationWorkspace({
           content: "正在创建 Realtime WebRTC 连接。",
           status: "complete",
         } satisfies ChatMessage,
-      ].slice(-6),
+      ]),
     );
 
     const result = await connectRealtime(stream, clientConfig);
@@ -603,7 +630,7 @@ export function ConversationWorkspace({
         result.errorMessage ?? "Realtime WebRTC 连接失败。";
       setSessionState("error");
       setMessages((current) =>
-        [
+        keepMessageHistory([
           ...current,
           {
             id: `realtime-error-${Date.now()}`,
@@ -611,7 +638,7 @@ export function ConversationWorkspace({
             content: realtimeErrorMessage,
             status: "complete",
           } satisfies ChatMessage,
-        ].slice(-6),
+        ]),
       );
       return;
     }
@@ -645,7 +672,7 @@ export function ConversationWorkspace({
       const frame = await captureCompressedFrame(videoRef.current);
       setLatestFrame(frame);
       setMessages((current) =>
-        [
+        keepMessageHistory([
           ...current,
           {
             id: `frame-${Date.now()}`,
@@ -653,7 +680,7 @@ export function ConversationWorkspace({
             content: `问题：${visionQuestion.trim() || defaultVisionQuestion}\n已本地抽帧：${frame.width}x${frame.height}，${formatBytes(frame.sizeBytes)}。`,
             status: "complete",
           } satisfies ChatMessage,
-        ].slice(-6),
+        ]),
       );
       const response = await fetch("/api/vision", {
         method: "POST",
@@ -676,7 +703,7 @@ export function ConversationWorkspace({
       setVisionModel(payload.model ?? null);
       setSessionState("listening");
       setMessages((current) =>
-        [
+        keepMessageHistory([
           ...current,
           {
             id: `vision-${Date.now()}`,
@@ -684,7 +711,7 @@ export function ConversationWorkspace({
             content: analysis,
             status: "complete",
           } satisfies ChatMessage,
-        ].slice(-6),
+        ]),
       );
       setTimeline((current) =>
         [
@@ -701,7 +728,7 @@ export function ConversationWorkspace({
       setSessionState("error");
       setFrameError(message);
       setMessages((current) =>
-        [
+        keepMessageHistory([
           ...current,
           {
             id: `frame-error-${Date.now()}`,
@@ -709,7 +736,7 @@ export function ConversationWorkspace({
             content: message,
             status: "complete",
           } satisfies ChatMessage,
-        ].slice(-6),
+        ]),
       );
     } finally {
       setIsVisionLoading(false);
@@ -839,6 +866,7 @@ export function ConversationWorkspace({
                   onClick={() =>
                     voicePipeline.start({
                       clientConfig,
+                      onAnswer: appendPipelineExchange,
                       onFinalTranscript: async (text) => {
                         if (!shouldUseVisionForTranscript(text)) {
                           return undefined;
@@ -908,10 +936,12 @@ export function ConversationWorkspace({
                   );
 
                   if (isPipelineMode) {
+                    const visualContextText = visualContext ?? undefined;
                     await voicePipeline.ask({
                       clientConfig,
                       message: question,
-                      visualContext,
+                      visualContext: visualContextText,
+                      onAnswer: (answer) => appendPipelineExchange(question, answer),
                     });
                   }
                 })();
