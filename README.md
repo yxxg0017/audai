@@ -78,10 +78,12 @@ npm run dev
 
 ```bash
 OPENAI_API_KEY=你的 OpenAI API Key
+OPENAI_REALTIME_MODEL=gpt-realtime-2
+OPENAI_REALTIME_VOICE=marin
 OPENAI_VISION_MODEL=gpt-5.5
 ```
 
-`OPENAI_API_KEY` 只会在服务端 API Route 中读取，不会暴露给浏览器。视觉分析默认使用低细节图片输入和较短输出，以控制调用成本。
+`OPENAI_API_KEY` 只会在服务端 API Route 中读取，不会暴露给浏览器。视觉分析默认使用低细节图片输入和较短输出，以控制调用成本。Realtime 语音会话通过服务端创建临时 client secret，浏览器只使用短期凭据建立后续 WebRTC 连接。
 
 常用命令：
 
