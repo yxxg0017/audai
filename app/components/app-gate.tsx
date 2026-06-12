@@ -20,20 +20,6 @@ type ConfigFormProps = {
   onSave: (config: ClientConfig) => void;
 };
 
-function getConfigFormKey(config: ClientConfig, mode: ConfigFormProps["mode"]) {
-  return [
-    mode,
-    config.apiKey ? "has-key" : "no-key",
-    config.baseUrl,
-    config.voiceMode,
-    config.chatModel,
-    config.visionModel,
-    config.realtimeModel,
-    config.realtimeVoice,
-    config.realtimeTranscriptionModel,
-  ].join("|");
-}
-
 function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps) {
   const [draft, setDraft] = useState(config);
 
@@ -147,18 +133,29 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
 export function AppGate() {
   const [config, setConfig] = useState<ClientConfig>(() => loadClientConfig());
   const [showSettings, setShowSettings] = useState(false);
-  const [savedConfigRevision, setSavedConfigRevision] = useState(0);
+  const [storageWarning, setStorageWarning] = useState<string | null>(null);
   const isReady = isClientConfigReady(config);
 
   function handleSave(nextConfig: ClientConfig) {
-    saveClientConfig(nextConfig);
+    try {
+      saveClientConfig(nextConfig);
+      setStorageWarning(null);
+    } catch {
+      // localStorage can fail in private mode or restricted browser contexts.
+      // Keep the in-memory config so the user can still enter the app.
+      setStorageWarning("当前浏览器无法写入 localStorage，本次配置只在当前页面会话中生效。");
+    }
     setConfig(nextConfig);
-    setSavedConfigRevision((current) => current + 1);
     setShowSettings(false);
   }
 
   function handleClear() {
-    clearClientConfig();
+    try {
+      clearClientConfig();
+      setStorageWarning(null);
+    } catch {
+      setStorageWarning("当前浏览器无法清除 localStorage，请手动清理站点数据。");
+    }
     setConfig(defaultClientConfig);
     setShowSettings(false);
   }
@@ -172,9 +169,9 @@ export function AppGate() {
           <p className="config-copy">
             API Key 和 Base URL 会保存到当前浏览器的 localStorage。保存后下次进入页面无需再次输入。
           </p>
+          {storageWarning ? <p className="config-warning">{storageWarning}</p> : null}
           <ConfigForm
             config={config}
-            key={`${getConfigFormKey(config, "gate")}-${savedConfigRevision}`}
             mode="gate"
             onSave={handleSave}
           />
@@ -201,9 +198,9 @@ export function AppGate() {
                 关闭
               </button>
             </div>
+            {storageWarning ? <p className="config-warning">{storageWarning}</p> : null}
             <ConfigForm
               config={config}
-              key={`${getConfigFormKey(config, "panel")}-${savedConfigRevision}`}
               mode="panel"
               onCancel={() => setShowSettings(false)}
               onClear={handleClear}
