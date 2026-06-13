@@ -12,8 +12,15 @@ const host = process.env.LOCAL_VOICE_HOST ?? "127.0.0.1";
 const port = Number(process.env.LOCAL_VOICE_NODE_PORT ?? "8766");
 const modelPath =
   process.env.LOCAL_STT_MODEL_PATH ??
-  join(process.cwd(), "models/local-voice/ggml-base.bin");
+  join(process.cwd(), "models/local-voice/ggml-large-v3-turbo.bin");
 const whisperCli = process.env.LOCAL_WHISPER_CLI ?? "whisper-cli";
+const sttPrompt =
+  process.env.LOCAL_STT_PROMPT ??
+  "以下是简体中文语音对话转写，场景是 AI 视觉对话助手。常见词包括：摄像头、麦克风、画面、视觉、上下文、桌面、屏幕、物体、文字、颜色、位置。请输出简体中文。";
+const whisperBeamSize = Number(process.env.LOCAL_WHISPER_BEAM_SIZE ?? "5");
+const whisperBestOf = Number(process.env.LOCAL_WHISPER_BEST_OF ?? "5");
+const sttAudioFilter =
+  process.env.LOCAL_STT_AUDIO_FILTER ?? "highpass=f=80,lowpass=f=8000,loudnorm";
 const maxToolWaitMs = 8000;
 const pendingToolResults = new Map();
 const traditionalToSimplifiedMap = new Map([
@@ -155,7 +162,13 @@ async function readHealthStatus() {
     ok: Object.values(checks).every(Boolean),
     port,
     service: "audai-local-voice-node",
+    sttAudioFilter,
+    sttPromptEnabled: Boolean(sttPrompt.trim()),
     whisperCli,
+    whisperDecode: {
+      beamSize: whisperBeamSize,
+      bestOf: whisperBestOf,
+    },
   };
 }
 
