@@ -133,8 +133,28 @@ bash scripts/setup_local_voice.sh
 npm run voice:local
 ```
 
+默认会下载并使用 `ggml-large-v3-turbo.bin`，优先保证中文识别准确率。如果本机推理速度不够，可以改用更小模型：
+
+```bash
+bash scripts/setup_local_voice.sh small
+LOCAL_STT_MODEL_PATH=models/local-voice/ggml-small.bin npm run voice:local
+```
+
+可选模型包括 `base`、`small`、`medium`、`large-v3-turbo`。模型文件来自 `ggerganov/whisper.cpp`，仅下载到本地 `models/local-voice/`，不会提交到仓库。
+
+本地 STT 准确率相关环境变量：
+
+```bash
+LOCAL_STT_PROMPT="以下是简体中文语音对话转写，场景是 AI 视觉对话助手。请输出简体中文。"
+LOCAL_WHISPER_BEAM_SIZE=5
+LOCAL_WHISPER_BEST_OF=5
+LOCAL_STT_AUDIO_FILTER="highpass=f=80,lowpass=f=8000,loudnorm"
+```
+
+`LOCAL_STT_PROMPT` 用于给 Whisper 补充简体中文、视觉对话和常见领域词；`LOCAL_WHISPER_BEAM_SIZE` 与 `LOCAL_WHISPER_BEST_OF` 越大通常越稳，但会增加延迟；`LOCAL_STT_AUDIO_FILTER` 会在转写前通过 ffmpeg 做轻量高通、低通和响度标准化。前端语音流水线会保留约 500ms 预录缓冲，并把静音结束阈值调到约 1 秒，减少中文开头音节被切掉和短句误识别的问题。
+
 启动后访问 `http://127.0.0.1:8766/health`，如果返回 `ok: true`，即可在设置中把“本地语音会话地址”设为 `http://127.0.0.1:8766/voice/turn`。
-健康检查会返回 `ffmpeg`、`whisper-cli`、本地模型文件和 macOS `say` 的可用性；如果 `ok: false`，先根据 `checks` 字段补齐本地环境。
+健康检查会返回 `ffmpeg`、`whisper-cli`、本地模型文件、macOS `say`、当前模型路径、提示词状态、解码参数和音频滤镜；如果 `ok: false`，先根据 `checks` 字段补齐本地环境。
 如果浏览器不是运行在这台 Mac 上，例如用手机或其他局域网设备访问 `http://10.x.x.x:3000`，不要填写 `127.0.0.1`，因为它指向浏览器所在设备本身。此时需要用 `LOCAL_VOICE_HOST=0.0.0.0 npm run voice:local` 启动服务，并把“本地语音会话地址”改为 `http://这台Mac的局域网IP:8766/voice/turn`。
 
 本地 Node 服务接口：
