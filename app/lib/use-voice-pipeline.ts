@@ -59,10 +59,12 @@ export type VoicePipelineState =
 
 const vadThreshold = 0.035;
 const speechStartMs = 0;
-const silenceEndMs = 700;
+const silenceEndMs = 1000;
 const interruptStartMs = 220;
-const minSpeechMs = 500;
-const maxSpeechMs = 12_000;
+const minSpeechMs = 800;
+const maxSpeechMs = 15_000;
+const preRecordBufferMs = 500;
+const preRecordChunkMs = 250;
 
 function getSupportedAudioMimeType() {
   if (typeof MediaRecorder === "undefined") {
@@ -217,8 +219,11 @@ export function useVoicePipeline() {
   const localAudioRefsRef = useRef<HTMLAudioElement[]>([]);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const rafRef = useRef<number | null>(null);
+  const recorderStartedAtRef = useRef(0);
   const sessionIdRef = useRef<string | null>(null);
   const shouldListenRef = useRef(false);
+  const shouldDiscardRecorderOnStopRef = useRef(false);
+  const shouldSubmitRecorderOnStopRef = useRef(false);
   const silenceStartedAtRef = useRef<number | null>(null);
   const speechTurnCountRef = useRef(0);
   const stateRef = useRef<VoicePipelineState>("idle");
@@ -765,10 +770,20 @@ export function useVoicePipeline() {
     if (!mediaRecorderRef.current || mediaRecorderRef.current.state === "inactive") {
       return;
     }
+    shouldSubmitRecorderOnStopRef.current = true;
     mediaRecorderRef.current.stop();
   }, []);
 
-  const startRecorder = useCallback(
+  const discardRecorder = useCallback(() => {
+    if (!mediaRecorderRef.current || mediaRecorderRef.current.state === "inactive") {
+      chunksRef.current = [];
+      return;
+    }
+    shouldDiscardRecorderOnStopRef.current = true;
+    mediaRecorderRef.current.stop();
+  }, []);
+
+  const startBufferedRecorder = useCallback(
     ({
       clientConfig,
       onAnswer,
@@ -780,23 +795,20 @@ export function useVoicePipeline() {
       onVisualToolCall?: (request: VisualToolRequest) => Promise<string | undefined>;
       stream: MediaStream;
     }) => {
+      if (mediaRecorderRef.current) {
+        return mediaRecorderRef.current.state !== "inactive";
+      }
+
       if (typeof MediaRecorder === "undefined") {
         setErrorMessage("当前浏览器不支持 MediaRecorder，无法录制语音。");
         setPipelineState("error");
-        return;
+        return false;
       }
 
-      stopSpeaking();
       chunksRef.current = [];
-      isRecordingRef.current = true;
-      currentSpeechStartedAtRef.current = performance.now();
-      setPipelineState("user_speaking");
-      setBackendSttStatus((current) => ({
-        ...current,
-        errorMessage: null,
-        recordingMs: 0,
-        state: "recording",
-      }));
+      recorderStartedAtRef.current = performance.now();
+      shouldDiscardRecorderOnStopRef.current = false;
+      shouldSubmitRecorderOnStopRef.current = false;
 
       const mimeType = getSupportedAudioMimeType();
       const recorder = new MediaRecorder(
@@ -810,6 +822,20 @@ export function useVoicePipeline() {
         }
       };
       recorder.onstop = () => {
+        const shouldSubmit = shouldSubmitRecorderOnStopRef.current;
+        const shouldDiscard = shouldDiscardRecorderOnStopRef.current;
+        shouldSubmitRecorderOnStopRef.current = false;
+        shouldDiscardRecorderOnStopRef.current = false;
+        if (mediaRecorderRef.current === recorder) {
+          mediaRecorderRef.current = null;
+        }
+
+        if (shouldDiscard) {
+          chunksRef.current = [];
+          isRecordingRef.current = false;
+          return;
+        }
+
         const speechDuration = performance.now() - currentSpeechStartedAtRef.current;
         isRecordingRef.current = false;
         const blob = new Blob(chunksRef.current, {
@@ -820,7 +846,12 @@ export function useVoicePipeline() {
           ...current,
           recordingMs: Math.round(speechDuration),
         }));
-        if (blob.size < 1024 || speechDuration < minSpeechMs || !shouldListenRef.current) {
+        if (
+          !shouldSubmit ||
+          blob.size < 1024 ||
+          speechDuration < minSpeechMs ||
+          !shouldListenRef.current
+        ) {
           setPipelineState(shouldListenRef.current ? "listening" : "idle");
           return;
         }
@@ -833,13 +864,54 @@ export function useVoicePipeline() {
       };
       recorder.onerror = () => {
         isRecordingRef.current = false;
+        if (mediaRecorderRef.current === recorder) {
+          mediaRecorderRef.current = null;
+        }
         setErrorMessage("MediaRecorder 录音失败。");
         setPipelineState("error");
       };
       mediaRecorderRef.current = recorder;
-      recorder.start();
+      recorder.start(preRecordChunkMs);
+      return true;
     },
-    [sendVoiceTurn, setPipelineState, stopSpeaking],
+    [sendVoiceTurn, setPipelineState],
+  );
+
+  const startRecorder = useCallback(
+    ({
+      clientConfig,
+      onAnswer,
+      onVisualToolCall,
+      stream,
+    }: {
+      clientConfig: ClientConfig;
+      onAnswer?: (question: string, answer: string) => void;
+      onVisualToolCall?: (request: VisualToolRequest) => Promise<string | undefined>;
+      stream: MediaStream;
+    }) => {
+      const ready = startBufferedRecorder({
+        clientConfig,
+        onAnswer,
+        onVisualToolCall,
+        stream,
+      });
+      if (!ready) {
+        return;
+      }
+
+      stopSpeaking();
+      isRecordingRef.current = true;
+      currentSpeechStartedAtRef.current = performance.now();
+      setPipelineState("user_speaking");
+      setBackendSttStatus((current) => ({
+        ...current,
+        errorMessage: null,
+        mimeType: mediaRecorderRef.current?.mimeType || current.mimeType,
+        recordingMs: 0,
+        state: "recording",
+      }));
+    },
+    [setPipelineState, startBufferedRecorder, stopSpeaking],
   );
 
   const startVadLoop = useCallback(
@@ -869,6 +941,15 @@ export function useVoicePipeline() {
       source.connect(analyser);
       audioContextRef.current = audioContext;
       analyserRef.current = analyser;
+      const recorderReady = startBufferedRecorder({
+        clientConfig,
+        onAnswer,
+        onVisualToolCall,
+        stream,
+      });
+      if (!recorderReady) {
+        return;
+      }
 
       function getRms() {
         analyser.getByteTimeDomainData(samples);
@@ -913,6 +994,20 @@ export function useVoicePipeline() {
           !isTurnInFlightRef.current &&
           (stateRef.current === "listening" || stateRef.current === "speaking");
 
+        if (!isRecordingRef.current && canStartRecording && !isLoud) {
+          const recorder = mediaRecorderRef.current;
+          if (!recorder || recorder.state === "inactive") {
+            startBufferedRecorder({
+              clientConfig,
+              onAnswer,
+              onVisualToolCall,
+              stream,
+            });
+          } else if (now - recorderStartedAtRef.current >= preRecordBufferMs) {
+            discardRecorder();
+          }
+        }
+
         if (!isRecordingRef.current && canStartRecording && isLoud) {
           loudStartedAtRef.current ??= now;
           if (now - loudStartedAtRef.current >= speechStartMs) {
@@ -949,7 +1044,14 @@ export function useVoicePipeline() {
 
       rafRef.current = requestAnimationFrame(tick);
     },
-    [setPipelineState, startRecorder, stopRecorder, stopSpeaking],
+    [
+      discardRecorder,
+      setPipelineState,
+      startBufferedRecorder,
+      startRecorder,
+      stopRecorder,
+      stopSpeaking,
+    ],
   );
 
   const start = useCallback(
@@ -1016,7 +1118,7 @@ export function useVoicePipeline() {
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
     stopSpeaking();
-    stopRecorder();
+    discardRecorder();
     if (rafRef.current !== null) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
@@ -1032,7 +1134,7 @@ export function useVoicePipeline() {
       state: "idle",
     }));
     setPipelineState("idle");
-  }, [setPipelineState, stopRecorder, stopSpeaking]);
+  }, [discardRecorder, setPipelineState, stopSpeaking]);
 
   useEffect(() => stop, [stop]);
 
