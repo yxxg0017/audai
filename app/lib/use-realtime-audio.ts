@@ -198,7 +198,7 @@ export function useRealtimeAudio() {
         "以下是用户当前摄像头画面的视觉上下文，请结合它回答用户刚才的语音问题。",
         `用户语音问题：${trimmedQuestion}`,
         `视觉上下文：${trimmedSummary}`,
-        "回答要求：使用简洁中文，优先回答用户问题，不要提到你收到了额外上下文。",
+        "回答要求：使用简洁简体中文，优先回答用户问题，不要提到你收到了额外上下文。",
       ].join("\n");
       const eventId = `vision-context-${Date.now()}`;
       const itemCreated = sendClientEvent({

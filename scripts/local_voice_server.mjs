@@ -16,6 +16,31 @@ const modelPath =
 const whisperCli = process.env.LOCAL_WHISPER_CLI ?? "whisper-cli";
 const maxToolWaitMs = 8000;
 const pendingToolResults = new Map();
+const traditionalToSimplifiedMap = new Map([
+  ["畫", "画"], ["面", "面"], ["這", "这"], ["裡", "里"], ["裏", "里"],
+  ["個", "个"], ["東", "东"], ["麼", "么"], ["說", "说"], ["語", "语"],
+  ["聽", "听"], ["見", "见"], ["藍", "蓝"], ["綠", "绿"], ["紅", "红"],
+  ["黃", "黄"], ["顏", "颜"], ["櫃", "柜"], ["門", "门"], ["掛", "挂"],
+  ["著", "着"], ["幾", "几"], ["條", "条"], ["圖", "图"], ["案", "案"],
+  ["頭", "头"], ["擋", "挡"], ["遮", "遮"], ["無", "无"], ["法", "法"],
+  ["清", "清"], ["處", "处"], ["室", "室"], ["內", "内"], ["後", "后"],
+  ["與", "与"], ["旁", "旁"], ["則", "则"], ["設", "设"], ["簾", "帘"],
+  ["鋪", "铺"], ["體", "体"], ["現", "现"], ["實", "实"], ["轉", "转"],
+  ["寫", "写"], ["識", "识"], ["別", "别"], ["應", "应"], ["該", "该"],
+  ["問", "问"], ["題", "题"], ["視", "视"], ["覺", "觉"], ["讀", "读"],
+  ["尋", "寻"], ["檢", "检"], ["測", "测"], ["狀", "状"], ["態", "态"],
+  ["啟", "启"], ["動", "动"], ["發", "发"], ["關", "关"], ["開", "开"],
+  ["閉", "闭"], ["傳", "传"], ["輸", "输"], ["雲", "云"], ["錄", "录"],
+  ["製", "制"], ["複", "复"], ["雜", "杂"], ["優", "优"], ["質", "质"],
+  ["麥", "麦"], ["風", "风"], ["攝", "摄"], ["機", "机"], ["對", "对"],
+  ["話", "话"], ["較", "较"], ["輕", "轻"], ["線", "线"], ["臺", "台"],
+  ["檔", "档"], ["單", "单"], ["雙", "双"], ["歲", "岁"], ["鏡", "镜"],
+  ["牆", "墙"], ["臟", "脏"], ["紙", "纸"], ["杯", "杯"], ["圓", "圆"],
+  ["錢", "钱"], ["鐘", "钟"], ["書", "书"], ["標", "标"], ["籤", "签"],
+  ["碼", "码"], ["嗎", "吗"], ["陰", "阴"], ["陽", "阳"], ["電", "电"],
+  ["腦", "脑"], ["燈", "灯"], ["滾", "滚"], ["換", "换"], ["庫", "库"],
+  ["櫥", "橱"], ["臉", "脸"], ["邊", "边"], ["帶", "带"], ["餘", "余"],
+]);
 
 const visualTools = [
   {
@@ -44,6 +69,13 @@ const visualTools = [
     prompt: "请判断用户提到的对象是否在画面中，并描述位置。",
   },
 ];
+
+function toSimplifiedChinese(text) {
+  return text
+    .split("")
+    .map((char) => traditionalToSimplifiedMap.get(char) ?? char)
+    .join("");
+}
 
 function readRequestBody(request) {
   return new Promise((resolve, reject) => {
@@ -165,7 +197,7 @@ async function transcribeAudio(audio) {
       "-nt",
       "-np",
     ]);
-    return output;
+    return toSimplifiedChinese(output);
   } finally {
     void rm(inputPath, { force: true });
     void rm(wavPath, { force: true });
@@ -235,7 +267,7 @@ async function analyzeImage({ config, imageDataUrl, question, tool }) {
                 "你是视觉对话工具。",
                 tool.prompt,
                 `用户问题：${question}`,
-                "回答控制在 120 字以内，只描述能从画面确认的事实。",
+                "请使用简体中文回答，控制在 120 字以内，只描述能从画面确认的事实。",
               ].join("\n"),
               type: "text",
             },
@@ -259,16 +291,16 @@ async function analyzeImage({ config, imageDataUrl, question, tool }) {
   if (!response.ok) {
     throw new Error(payload.error?.message ?? "视觉工具调用失败。");
   }
-  return payload.choices?.[0]?.message?.content?.trim() ?? "";
+  return toSimplifiedChinese(payload.choices?.[0]?.message?.content?.trim() ?? "");
 }
 
 function extractDelta(payload) {
   const content = payload.choices?.[0]?.delta?.content;
   if (typeof content === "string") {
-    return content;
+    return toSimplifiedChinese(content);
   }
   if (Array.isArray(content)) {
-    return content.map((item) => item.text ?? "").join("");
+    return toSimplifiedChinese(content.map((item) => item.text ?? "").join(""));
   }
   return "";
 }
@@ -297,7 +329,7 @@ async function streamChat({ config, send, text, turnId, visualSummary }) {
     {
       content: [
         "你是一个低延迟 AI 视觉对话助手。",
-        "请用自然中文回答，默认不超过 3 句话。",
+        "请用自然简体中文回答，默认不超过 3 句话。",
         visualSummary ? `视觉工具结果：${visualSummary}` : "",
         `用户问题：${text}`,
       ].filter(Boolean).join("\n"),

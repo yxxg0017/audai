@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
 
   const prompt = [
     "你是一个 AI 视觉对话助手。",
-    "请用简洁自然的中文回答用户。",
+    "请用简洁自然的简体中文回答用户。",
     "如果提供了视觉上下文，请结合上下文回答；如果没有，请直接回答语音问题。",
     "除非用户要求详细解释，否则回答不超过 3 句话。",
     visualContext ? `视觉上下文：${visualContext}` : "",
