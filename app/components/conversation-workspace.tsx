@@ -383,6 +383,14 @@ export function ConversationWorkspace({
     : connectionState === "connected"
       ? getRealtimeTurnStatus(turnState)
       : getRealtimeStatus(connectionState);
+  const activeSessionErrorMessage = isPipelineMode
+    ? voicePipeline.errorMessage ?? errorMessage
+    : realtimeError ?? errorMessage;
+  const overlayStatusText =
+    activeSessionErrorMessage ??
+    (displayedSessionState === "error" && stream
+      ? "语音或会话流程异常，摄像头和麦克风仍在采集，可停止语音后重试。"
+      : sessionDescriptions[displayedSessionState]);
 
   const appendInteraction = useCallback((nextState: SessionState, action: SessionAction) => {
     setMessages((current) =>
@@ -886,7 +894,7 @@ export function ConversationWorkspace({
 
             <div className="video-overlay">
               <strong>
-                {errorMessage ?? sessionDescriptions[displayedSessionState]}
+                {overlayStatusText}
               </strong>
               <span>
                 {stream
@@ -1004,9 +1012,6 @@ export function ConversationWorkspace({
               }
             >
               发送上下文
-            </button>
-            <button type="button" onClick={() => handleAction("fail")}>
-              标记异常
             </button>
             <button
               type="button"
