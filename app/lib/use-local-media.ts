@@ -125,8 +125,13 @@ export function useLocalMedia(): LocalMediaStatus & {
 
   const startMedia = useCallback(async (): Promise<StartMediaResult> => {
     if (!navigator.mediaDevices?.getUserMedia) {
+      const isSecureContext = window.isSecureContext;
+      const protocol = window.location.protocol;
+      const host = window.location.host;
       const unsupportedMessage =
-        "当前浏览器不支持 getUserMedia，无法采集摄像头和麦克风。";
+        isSecureContext
+          ? "当前浏览器不支持 getUserMedia，无法采集摄像头和麦克风。请使用 Chrome、Edge 或 Safari 的新版本。"
+          : `当前访问地址 ${protocol}//${host} 不是浏览器认可的安全上下文，无法使用摄像头和麦克风。请改用 http://localhost:3000，或为局域网地址配置 HTTPS。`;
       setPermissionState("error");
       setErrorMessage(unsupportedMessage);
       return { ok: false, errorMessage: unsupportedMessage };

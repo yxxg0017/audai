@@ -98,6 +98,8 @@ npm run dev
 http://localhost:3000
 ```
 
+摄像头和麦克风需要浏览器安全上下文。建议在本机测试时使用 `http://localhost:3000`。如果使用局域网 IP，例如 `http://10.29.137.100:3000`，部分浏览器会禁用 `getUserMedia`，需要改用 HTTPS 或回到 localhost 测试。
+
 首次进入页面会先显示配置页。你只需要输入 OpenAI API Key 和 Base URL，配置会保存到当前浏览器的 localStorage。下次打开同一浏览器时会自动进入主界面，无需重复输入。语音模式和模型细节在主界面顶部“设置”菜单中管理。
 
 也可以在 `.env.local` 中配置服务端备用值：

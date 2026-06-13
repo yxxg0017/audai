@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   clearClientConfig,
   defaultClientConfig,
@@ -20,6 +20,12 @@ type ConfigFormProps = {
   onSave: (config: ClientConfig) => void;
 };
 
+type ModelsApiResponse = {
+  models?: string[];
+  suggested?: Partial<ClientConfig>;
+  error?: string;
+};
+
 function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps) {
   const apiKeyRef = useRef<HTMLInputElement | null>(null);
   const baseUrlRef = useRef<HTMLInputElement | null>(null);
@@ -29,24 +35,101 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
   const realtimeVoiceRef = useRef<HTMLInputElement | null>(null);
   const visionModelRef = useRef<HTMLInputElement | null>(null);
   const voiceModeRef = useRef<HTMLSelectElement | null>(null);
+  const detectedConfigRef = useRef<Partial<ClientConfig>>({});
+  const [modelDetectionStatus, setModelDetectionStatus] = useState<string | null>(
+    null,
+  );
+
+  function readFormConfig() {
+    return normalizeClientConfig({
+      ...config,
+      ...detectedConfigRef.current,
+      apiKey: apiKeyRef.current?.value ?? config.apiKey,
+      baseUrl: baseUrlRef.current?.value ?? config.baseUrl,
+      chatModel:
+        chatModelRef.current?.value ??
+        detectedConfigRef.current.chatModel ??
+        config.chatModel,
+      realtimeModel:
+        realtimeModelRef.current?.value ??
+        detectedConfigRef.current.realtimeModel ??
+        config.realtimeModel,
+      realtimeTranscriptionModel:
+        realtimeTranscriptionModelRef.current?.value ??
+        detectedConfigRef.current.realtimeTranscriptionModel ??
+        config.realtimeTranscriptionModel,
+      realtimeVoice:
+        realtimeVoiceRef.current?.value ??
+        detectedConfigRef.current.realtimeVoice ??
+        config.realtimeVoice,
+      visionModel:
+        visionModelRef.current?.value ??
+        detectedConfigRef.current.visionModel ??
+        config.visionModel,
+      voiceMode:
+        voiceModeRef.current?.value === "realtime" ? "realtime" : "pipeline",
+    });
+  }
+
+  function applyConfigToVisibleFields(nextConfig: ClientConfig) {
+    if (chatModelRef.current) {
+      chatModelRef.current.value = nextConfig.chatModel;
+    }
+
+    if (visionModelRef.current) {
+      visionModelRef.current.value = nextConfig.visionModel;
+    }
+
+    if (realtimeModelRef.current) {
+      realtimeModelRef.current.value = nextConfig.realtimeModel;
+    }
+
+    if (realtimeTranscriptionModelRef.current) {
+      realtimeTranscriptionModelRef.current.value =
+        nextConfig.realtimeTranscriptionModel;
+    }
+  }
+
+  async function handleDetectModels() {
+    const currentConfig = readFormConfig();
+
+    if (!currentConfig.apiKey || !currentConfig.baseUrl) {
+      setModelDetectionStatus("请先填写 API Key 和 Base URL。");
+      return;
+    }
+
+    setModelDetectionStatus("正在读取模型列表...");
+
+    try {
+      const response = await fetch("/api/models", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ openai: currentConfig }),
+      });
+      const payload = (await response.json()) as ModelsApiResponse;
+
+      if (!response.ok || !payload.suggested) {
+        throw new Error(payload.error ?? "模型检测失败。");
+      }
+
+      const nextConfig = normalizeClientConfig({
+        ...currentConfig,
+        ...payload.suggested,
+      });
+
+      detectedConfigRef.current = nextConfig;
+      applyConfigToVisibleFields(nextConfig);
+      setModelDetectionStatus(
+        `已读取 ${payload.models?.length ?? 0} 个模型，并自动选择可用候选。`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "模型检测失败。";
+      setModelDetectionStatus(message);
+    }
+  }
 
   function handleSave() {
-    onSave(
-      normalizeClientConfig({
-        ...config,
-        apiKey: apiKeyRef.current?.value ?? "",
-        baseUrl: baseUrlRef.current?.value ?? "",
-        chatModel: chatModelRef.current?.value ?? config.chatModel,
-        realtimeModel: realtimeModelRef.current?.value ?? config.realtimeModel,
-        realtimeTranscriptionModel:
-          realtimeTranscriptionModelRef.current?.value ??
-          config.realtimeTranscriptionModel,
-        realtimeVoice: realtimeVoiceRef.current?.value ?? config.realtimeVoice,
-        visionModel: visionModelRef.current?.value ?? config.visionModel,
-        voiceMode:
-          voiceModeRef.current?.value === "realtime" ? "realtime" : "pipeline",
-      }),
-    );
+    onSave(readFormConfig());
   }
 
   return (
@@ -133,6 +216,9 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
       </div>
 
       <div className="config-actions">
+        <button onClick={handleDetectModels} type="button">
+          检测模型
+        </button>
         {mode === "panel" ? (
           <button onClick={onCancel} type="button">
             取消
@@ -147,45 +233,58 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
           保存并进入
         </button>
       </div>
+      {modelDetectionStatus ? (
+        <p className="config-status">{modelDetectionStatus}</p>
+      ) : null}
     </div>
   );
 }
 
 export function AppGate() {
-  const [config, setConfig] = useState<ClientConfig>(() => {
-    const storedConfig = loadClientConfig();
-
-    if (typeof window === "undefined") {
-      return storedConfig;
-    }
-
-    const searchParams = new URLSearchParams(window.location.search);
-    const apiKey = searchParams.get("apiKey");
-    const baseUrl = searchParams.get("baseUrl");
-
-    if (!apiKey && !baseUrl) {
-      return storedConfig;
-    }
-
-    const nextConfig = normalizeClientConfig({
-      ...storedConfig,
-      apiKey: apiKey ?? storedConfig.apiKey,
-      baseUrl: baseUrl ?? storedConfig.baseUrl,
-    });
-
-    try {
-      saveClientConfig(nextConfig);
-    } catch {
-      // The in-memory config still lets the current page enter the app.
-    }
-
-    window.history.replaceState(null, "", window.location.pathname);
-
-    return nextConfig;
-  });
+  const [config, setConfig] = useState<ClientConfig>(defaultClientConfig);
   const [showSettings, setShowSettings] = useState(false);
   const [storageWarning, setStorageWarning] = useState<string | null>(null);
   const isReady = isClientConfigReady(config);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    window.setTimeout(() => {
+      if (isCancelled) {
+        return;
+      }
+
+      const storedConfig = loadClientConfig();
+      const searchParams = new URLSearchParams(window.location.search);
+      const apiKey = searchParams.get("apiKey");
+      const baseUrl = searchParams.get("baseUrl");
+
+      if (!apiKey && !baseUrl) {
+        setConfig(storedConfig);
+        return;
+      }
+
+      const nextConfig = normalizeClientConfig({
+        ...storedConfig,
+        apiKey: apiKey ?? storedConfig.apiKey,
+        baseUrl: baseUrl ?? storedConfig.baseUrl,
+      });
+
+      try {
+        saveClientConfig(nextConfig);
+        setStorageWarning(null);
+      } catch {
+        setStorageWarning("当前浏览器无法写入 localStorage，本次配置只在当前页面会话中生效。");
+      }
+
+      window.history.replaceState(null, "", window.location.pathname);
+      setConfig(nextConfig);
+    }, 0);
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
 
   function handleSave(nextConfig: ClientConfig) {
     try {
@@ -223,6 +322,7 @@ export function AppGate() {
           {storageWarning ? <p className="config-warning">{storageWarning}</p> : null}
           <ConfigForm
             config={config}
+            key={`${config.apiKey}:${config.baseUrl}:gate`}
             mode="gate"
             onSave={handleSave}
           />
@@ -252,6 +352,7 @@ export function AppGate() {
             {storageWarning ? <p className="config-warning">{storageWarning}</p> : null}
             <ConfigForm
               config={config}
+              key={`${config.apiKey}:${config.baseUrl}:${config.voiceMode}:panel`}
               mode="panel"
               onCancel={() => setShowSettings(false)}
               onClear={handleClear}

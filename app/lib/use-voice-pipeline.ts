@@ -47,6 +47,10 @@ export type VoicePipelineState =
   | "error";
 
 function getSpeechRecognitionConstructor() {
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+
   const globalWindow = window as typeof window & {
     SpeechRecognition?: SpeechRecognitionConstructor;
     webkitSpeechRecognition?: SpeechRecognitionConstructor;
@@ -55,9 +59,18 @@ function getSpeechRecognitionConstructor() {
   return globalWindow.SpeechRecognition ?? globalWindow.webkitSpeechRecognition;
 }
 
+function getSpeechSynthesis() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  return window.speechSynthesis ?? null;
+}
+
 export function useVoicePipeline() {
   const [state, setState] = useState<VoicePipelineState>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [interimTranscript, setInterimTranscript] = useState<string | null>(null);
   const [lastTranscript, setLastTranscript] = useState<string | null>(null);
   const [lastAnswer, setLastAnswer] = useState<string | null>(null);
   const [model, setModel] = useState<string | null>(null);
@@ -65,8 +78,10 @@ export function useVoicePipeline() {
   const shouldListenRef = useRef(false);
 
   const stopSpeaking = useCallback(() => {
-    if (window.speechSynthesis.speaking) {
-      window.speechSynthesis.cancel();
+    const speechSynthesis = getSpeechSynthesis();
+
+    if (speechSynthesis?.speaking) {
+      speechSynthesis.cancel();
     }
   }, []);
 
@@ -75,11 +90,20 @@ export function useVoicePipeline() {
     recognitionRef.current?.stop();
     recognitionRef.current = null;
     stopSpeaking();
+    setInterimTranscript(null);
     setState("idle");
   }, [stopSpeaking]);
 
   const speak = useCallback((text: string) => {
     stopSpeaking();
+
+    const speechSynthesis = getSpeechSynthesis();
+
+    if (!speechSynthesis || typeof SpeechSynthesisUtterance === "undefined") {
+      setErrorMessage("当前浏览器不支持语音合成，已完成文本回复但无法播放语音。");
+      setState("error");
+      return;
+    }
 
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "zh-CN";
@@ -92,7 +116,7 @@ export function useVoicePipeline() {
       setState("error");
     };
     setState("speaking");
-    window.speechSynthesis.speak(utterance);
+    speechSynthesis.speak(utterance);
   }, [stopSpeaking]);
 
   const ask = useCallback(
@@ -115,6 +139,7 @@ export function useVoicePipeline() {
 
       setState("thinking");
       setErrorMessage(null);
+      setInterimTranscript(null);
       setLastTranscript(trimmedMessage);
 
       const response = await fetch("/api/chat", {
@@ -156,7 +181,7 @@ export function useVoicePipeline() {
       const SpeechRecognition = getSpeechRecognitionConstructor();
 
       if (!SpeechRecognition) {
-        setErrorMessage("当前浏览器不支持 SpeechRecognition，请使用 Chrome 测试。");
+        setErrorMessage("当前浏览器不支持 SpeechRecognition，请使用 Chrome，并通过 localhost 或 HTTPS 访问。");
         setState("error");
         return false;
       }
@@ -173,13 +198,22 @@ export function useVoicePipeline() {
 
       recognition.onresult = (event) => {
         let finalText = "";
+        let interimText = "";
 
         for (let index = event.resultIndex; index < event.results.length; index += 1) {
           const result = event.results[index];
 
           if (result.isFinal) {
             finalText += result[0].transcript;
+          } else {
+            interimText += result[0].transcript;
           }
+        }
+
+        const trimmedInterimText = interimText.trim();
+
+        if (trimmedInterimText) {
+          setInterimTranscript(trimmedInterimText);
         }
 
         const trimmedText = finalText.trim();
@@ -188,6 +222,8 @@ export function useVoicePipeline() {
           return;
         }
 
+        setInterimTranscript(null);
+        setLastTranscript(trimmedText);
         stopSpeaking();
         void (async () => {
           const visualContext = await onFinalTranscript?.(trimmedText);
@@ -227,6 +263,7 @@ export function useVoicePipeline() {
 
   return {
     errorMessage,
+    interimTranscript,
     lastAnswer,
     lastTranscript,
     model,

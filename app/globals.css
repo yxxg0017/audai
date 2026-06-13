@@ -131,6 +131,17 @@ button:disabled {
   line-height: 1.5;
 }
 
+.config-status {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgb(15 118 110 / 28%);
+  border-radius: 8px;
+  background: rgb(15 118 110 / 8%);
+  color: var(--accent-strong);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .config-form {
   display: flex;
   flex-direction: column;

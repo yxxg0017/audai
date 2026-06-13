@@ -348,6 +348,10 @@ export function ConversationWorkspace({
     (transcript) =>
       transcript.role === "user" && transcript.status === "complete",
   );
+  const visiblePipelineTranscript =
+    voicePipeline.interimTranscript ??
+    (voicePipeline.state === "thinking" ? voicePipeline.lastTranscript : null);
+  const realtimeConversationTranscripts = [...transcripts].reverse();
 
   const appendInteraction = useCallback((nextState: SessionState, action: SessionAction) => {
     setMessages((current) =>
@@ -988,6 +992,33 @@ export function ConversationWorkspace({
                 <p>{message.content}</p>
               </article>
             ))}
+            {isPipelineMode && visiblePipelineTranscript ? (
+              <article className="message message-user">
+                <div className="message-meta">
+                  <span>用户</span>
+                  <small>
+                    {voicePipeline.interimTranscript ? "识别中" : "已识别"}
+                  </small>
+                </div>
+                <p>{visiblePipelineTranscript}</p>
+              </article>
+            ) : null}
+            {!isPipelineMode
+              ? realtimeConversationTranscripts.map((transcript) => (
+                  <article
+                    className={`message message-${transcript.role}`}
+                    key={`conversation-${transcript.id}`}
+                  >
+                    <div className="message-meta">
+                      <span>{transcript.role === "user" ? "用户" : "AI"}</span>
+                      <small>
+                        {transcript.status === "streaming" ? "流式输出" : "完成"}
+                      </small>
+                    </div>
+                    <p>{transcript.text}</p>
+                  </article>
+                ))
+              : null}
           </section>
         </div>
 
