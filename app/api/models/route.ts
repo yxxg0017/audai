@@ -37,19 +37,52 @@ const visionPatterns = [
 ];
 const realtimePatterns = [/realtime/i];
 const transcriptionPatterns = [/transcribe/i, /whisper/i, /stt/i];
+const preferredChatModels = [
+  "[按次]gpt-5.5",
+  "[按次]gpt-5.4",
+  "[按次]gpt-4o",
+  "gpt-5.5",
+  "gpt-5.4",
+  "gpt-4o",
+  "gpt-4o-mini",
+  "[按次]grok-4.20-0309-non-reasoning",
+];
+const preferredVisionModels = [
+  "[按次]gpt-4o",
+  "[按次]gpt-5.5",
+  "[按次]gpt-5.4",
+  "gpt-4o",
+  "gpt-4o-mini",
+  "[按次]gemini-3.5-flash",
+];
+
+function normalizeModelName(model: string) {
+  return model.replace(/^\[[^\]]+\]/, "");
+}
 
 function pickModel(
   models: string[],
   currentModel: string,
   patterns: RegExp[],
   fallbackPatterns: RegExp[] = [],
+  preferredModels: string[] = [],
 ) {
+  const byPreferredModel = preferredModels.find((model) =>
+    models.includes(model),
+  );
+
+  if (byPreferredModel) {
+    return byPreferredModel;
+  }
+
   if (models.includes(currentModel)) {
     return currentModel;
   }
 
   const byPrimaryPattern = models.find((model) =>
-    patterns.some((pattern) => pattern.test(model)),
+    patterns.some((pattern) =>
+      pattern.test(model) || pattern.test(normalizeModelName(model)),
+    ),
   );
 
   if (byPrimaryPattern) {
@@ -57,7 +90,9 @@ function pickModel(
   }
 
   const byFallbackPattern = models.find((model) =>
-    fallbackPatterns.some((pattern) => pattern.test(model)),
+    fallbackPatterns.some((pattern) =>
+      pattern.test(model) || pattern.test(normalizeModelName(model)),
+    ),
   );
 
   if (byFallbackPattern) {
@@ -135,12 +170,19 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({
     models,
     suggested: {
-      chatModel: pickModel(models, openaiConfig.chatModel, chatPatterns),
+      chatModel: pickModel(
+        models,
+        openaiConfig.chatModel,
+        chatPatterns,
+        [],
+        preferredChatModels,
+      ),
       visionModel: pickModel(
         models,
         openaiConfig.visionModel,
         visionPatterns,
         textFallbackPatterns,
+        preferredVisionModels,
       ),
       realtimeModel: pickModel(
         models,
