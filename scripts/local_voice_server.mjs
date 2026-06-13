@@ -374,49 +374,6 @@ function waitForToolResult(turnId) {
   });
 }
 
-async function analyzeImage({ config, imageDataUrl, question, tool }) {
-  if (!config.apiKey) {
-    return "未配置 API Key，无法进行视觉分析。";
-  }
-  const response = await fetch(`${config.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
-    body: JSON.stringify({
-      messages: [
-        {
-          content: [
-            {
-              text: [
-                "你是视觉对话工具。",
-                tool.prompt,
-                `用户问题：${question}`,
-                "请使用简体中文回答，控制在 120 字以内，只描述能从画面确认的事实。",
-              ].join("\n"),
-              type: "text",
-            },
-            {
-              image_url: { detail: "low", url: imageDataUrl },
-              type: "image_url",
-            },
-          ],
-          role: "user",
-        },
-      ],
-      model: config.visionModel,
-    }),
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    method: "POST",
-  });
-  const payload = await response.json();
-  if (!response.ok) {
-    throw new Error(
-      `视觉工具调用失败，模型 ${config.visionModel}：${payload.error?.message ?? "未知错误。"}`,
-    );
-  }
-  return toSimplifiedChinese(payload.choices?.[0]?.message?.content?.trim() ?? "");
-}
-
 function extractDelta(payload) {
   const content = payload.choices?.[0]?.delta?.content;
   if (typeof content === "string") {

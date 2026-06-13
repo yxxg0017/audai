@@ -53,8 +53,8 @@ export async function captureCompressedFrame(
     throw new Error("摄像头画面尚未准备好，请稍后再试。");
   }
 
-  const maxWidth = options.maxWidth ?? 768;
-  const quality = options.quality ?? 0.76;
+  const maxWidth = options.maxWidth ?? 640;
+  const quality = options.quality ?? 0.62;
   const preferredMimeType = options.preferredMimeType ?? "image/webp";
   const scale = Math.min(1, maxWidth / originalWidth);
   const width = Math.max(1, Math.round(originalWidth * scale));

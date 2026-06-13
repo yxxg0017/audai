@@ -49,6 +49,7 @@ const visualIntentKeywords = [
   "手里",
 ];
 const visionContextTtlMs = 60_000;
+const visualToolFrameTtlMs = 15_000;
 const maxMessageHistory = 80;
 
 type VisionApiResponse = {
@@ -75,6 +76,12 @@ function shouldUseVisionForTranscript(text: string) {
 
 function isFreshVisionContext(context: VisionContext | null) {
   return Boolean(context && Date.now() - context.capturedAt < visionContextTtlMs);
+}
+
+function isFreshCapturedFrame(frame: CapturedFrame | null) {
+  return Boolean(
+    frame && Date.now() - new Date(frame.capturedAt).getTime() < visualToolFrameTtlMs,
+  );
 }
 
 function createMessage(state: SessionState, action: SessionAction): ChatMessage {
@@ -440,6 +447,12 @@ export function ConversationWorkspace({
     }
 
     try {
+      if (isFreshCapturedFrame(latestFrame)) {
+        setVisionCacheHitCount((current) => current + 1);
+        setVisionContextStatus("已复用最近压缩帧提供给视觉工具。");
+        return latestFrame?.dataUrl;
+      }
+
       const frame = await captureCompressedFrame(videoRef.current);
       setLatestFrame(frame);
       setVisionRequestCount((current) => current + 1);
@@ -450,7 +463,7 @@ export function ConversationWorkspace({
       setVisionContextStatus(message);
       return undefined;
     }
-  }, [hasVideo, stream]);
+  }, [hasVideo, latestFrame, stream]);
 
 
   const analyzeAndInjectVisionContext = useCallback(
