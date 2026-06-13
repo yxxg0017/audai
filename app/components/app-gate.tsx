@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   clearClientConfig,
   defaultClientConfig,
@@ -152,40 +152,50 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
 }
 
 export function AppGate() {
-  const [config, setConfig] = useState<ClientConfig>(() => {
-    const storedConfig = loadClientConfig();
-
-    if (typeof window === "undefined") {
-      return storedConfig;
-    }
-
-    const searchParams = new URLSearchParams(window.location.search);
-    const apiKey = searchParams.get("apiKey");
-    const baseUrl = searchParams.get("baseUrl");
-
-    if (!apiKey && !baseUrl) {
-      return storedConfig;
-    }
-
-    const nextConfig = normalizeClientConfig({
-      ...storedConfig,
-      apiKey: apiKey ?? storedConfig.apiKey,
-      baseUrl: baseUrl ?? storedConfig.baseUrl,
-    });
-
-    try {
-      saveClientConfig(nextConfig);
-    } catch {
-      // The in-memory config still lets the current page enter the app.
-    }
-
-    window.history.replaceState(null, "", window.location.pathname);
-
-    return nextConfig;
-  });
+  const [config, setConfig] = useState<ClientConfig>(defaultClientConfig);
   const [showSettings, setShowSettings] = useState(false);
   const [storageWarning, setStorageWarning] = useState<string | null>(null);
   const isReady = isClientConfigReady(config);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    window.setTimeout(() => {
+      if (isCancelled) {
+        return;
+      }
+
+      const storedConfig = loadClientConfig();
+      const searchParams = new URLSearchParams(window.location.search);
+      const apiKey = searchParams.get("apiKey");
+      const baseUrl = searchParams.get("baseUrl");
+
+      if (!apiKey && !baseUrl) {
+        setConfig(storedConfig);
+        return;
+      }
+
+      const nextConfig = normalizeClientConfig({
+        ...storedConfig,
+        apiKey: apiKey ?? storedConfig.apiKey,
+        baseUrl: baseUrl ?? storedConfig.baseUrl,
+      });
+
+      try {
+        saveClientConfig(nextConfig);
+        setStorageWarning(null);
+      } catch {
+        setStorageWarning("当前浏览器无法写入 localStorage，本次配置只在当前页面会话中生效。");
+      }
+
+      window.history.replaceState(null, "", window.location.pathname);
+      setConfig(nextConfig);
+    }, 0);
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
 
   function handleSave(nextConfig: ClientConfig) {
     try {
@@ -223,6 +233,7 @@ export function AppGate() {
           {storageWarning ? <p className="config-warning">{storageWarning}</p> : null}
           <ConfigForm
             config={config}
+            key={`${config.apiKey}:${config.baseUrl}:gate`}
             mode="gate"
             onSave={handleSave}
           />
@@ -252,6 +263,7 @@ export function AppGate() {
             {storageWarning ? <p className="config-warning">{storageWarning}</p> : null}
             <ConfigForm
               config={config}
+              key={`${config.apiKey}:${config.baseUrl}:${config.voiceMode}:panel`}
               mode="panel"
               onCancel={() => setShowSettings(false)}
               onClear={handleClear}

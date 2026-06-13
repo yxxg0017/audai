@@ -47,12 +47,24 @@ export type VoicePipelineState =
   | "error";
 
 function getSpeechRecognitionConstructor() {
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+
   const globalWindow = window as typeof window & {
     SpeechRecognition?: SpeechRecognitionConstructor;
     webkitSpeechRecognition?: SpeechRecognitionConstructor;
   };
 
   return globalWindow.SpeechRecognition ?? globalWindow.webkitSpeechRecognition;
+}
+
+function getSpeechSynthesis() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  return window.speechSynthesis ?? null;
 }
 
 export function useVoicePipeline() {
@@ -65,8 +77,10 @@ export function useVoicePipeline() {
   const shouldListenRef = useRef(false);
 
   const stopSpeaking = useCallback(() => {
-    if (window.speechSynthesis.speaking) {
-      window.speechSynthesis.cancel();
+    const speechSynthesis = getSpeechSynthesis();
+
+    if (speechSynthesis?.speaking) {
+      speechSynthesis.cancel();
     }
   }, []);
 
@@ -81,6 +95,14 @@ export function useVoicePipeline() {
   const speak = useCallback((text: string) => {
     stopSpeaking();
 
+    const speechSynthesis = getSpeechSynthesis();
+
+    if (!speechSynthesis || typeof SpeechSynthesisUtterance === "undefined") {
+      setErrorMessage("当前浏览器不支持语音合成，已完成文本回复但无法播放语音。");
+      setState("error");
+      return;
+    }
+
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "zh-CN";
     utterance.rate = 1;
@@ -92,7 +114,7 @@ export function useVoicePipeline() {
       setState("error");
     };
     setState("speaking");
-    window.speechSynthesis.speak(utterance);
+    speechSynthesis.speak(utterance);
   }, [stopSpeaking]);
 
   const ask = useCallback(
