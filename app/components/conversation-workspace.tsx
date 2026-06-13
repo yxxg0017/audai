@@ -35,7 +35,7 @@ const sessionOrder: SessionState[] = [
   "error",
 ];
 const defaultVisionQuestion =
-  "请用中文简要描述画面中的主要内容，并指出需要注意的细节。";
+  "请用简体中文简要描述画面中的主要内容，并指出需要注意的细节。";
 const visualIntentKeywords = [
   "画面",
   "看到",
@@ -251,7 +251,6 @@ export function ConversationWorkspace({
   const [timeline, setTimeline] = useState<TimelineEvent[]>(initialTimeline);
   const [latestFrame, setLatestFrame] = useState<CapturedFrame | null>(null);
   const [frameError, setFrameError] = useState<string | null>(null);
-  const [visionQuestion, setVisionQuestion] = useState(defaultVisionQuestion);
   const [visionAnalysis, setVisionAnalysis] = useState<string | null>(null);
   const [visionModel, setVisionModel] = useState<string | null>(null);
   const [isVisionLoading, setIsVisionLoading] = useState(false);
@@ -740,7 +739,7 @@ export function ConversationWorkspace({
           {
             id: `frame-${Date.now()}`,
             role: "user",
-            content: `问题：${visionQuestion.trim() || defaultVisionQuestion}\n已本地抽帧：${frame.width}x${frame.height}，${formatBytes(frame.sizeBytes)}。`,
+            content: `问题：${defaultVisionQuestion}\n已本地抽帧：${frame.width}x${frame.height}，${formatBytes(frame.sizeBytes)}。`,
             status: "complete",
           } satisfies ChatMessage,
         ]),
@@ -751,7 +750,7 @@ export function ConversationWorkspace({
         body: JSON.stringify({
           imageDataUrl: frame.dataUrl,
           openai: clientConfig,
-          question: visionQuestion,
+          question: defaultVisionQuestion,
         }),
       });
       const payload = (await response.json()) as VisionApiResponse;
@@ -984,37 +983,6 @@ export function ConversationWorkspace({
             </button>
             <button
               type="button"
-              onClick={() => {
-                const question = latestUserTranscript?.text ?? visionQuestion;
-
-                void (async () => {
-                  const visualContext = await analyzeAndInjectVisionContext(
-                    question,
-                    "manual",
-                  );
-
-                  if (isPipelineMode) {
-                    const visualContextText = visualContext ?? undefined;
-                    await voicePipeline.ask({
-                      clientConfig,
-                      message: question,
-                      visualContext: visualContextText,
-                      onAnswer: (answer) => appendPipelineExchange(question, answer),
-                    });
-                  }
-                })();
-              }}
-              disabled={
-                !stream ||
-                !hasVideo ||
-                (!isPipelineMode && connectionState !== "connected") ||
-                isVisionLoading
-              }
-            >
-              发送上下文
-            </button>
-            <button
-              type="button"
               onClick={handleStop}
               disabled={!stream && sessionState === "idle"}
             >
@@ -1052,17 +1020,6 @@ export function ConversationWorkspace({
               </p>
             </div>
           </section>
-
-          <label className="vision-question" htmlFor="vision-question">
-            <span>视觉问题</span>
-            <textarea
-              id="vision-question"
-              maxLength={500}
-              onChange={(event) => setVisionQuestion(event.target.value)}
-              rows={3}
-              value={visionQuestion}
-            />
-          </label>
 
           <section className="conversation-panel" aria-label="对话消息">
             {messages.map((message) => (
@@ -1205,7 +1162,10 @@ export function ConversationWorkspace({
             <p>
               {isVisionLoading
                 ? "正在分析本地压缩帧。"
-                : visionAnalysis ?? frameError ?? "分析画面后，这里会显示模型返回的视觉理解结果。"}
+                : voicePipeline.visualToolSummary ??
+                  visionAnalysis ??
+                  frameError ??
+                  "分析画面或语音触发视觉问题后，这里会显示模型返回的视觉理解结果。"}
             </p>
           </section>
 
@@ -1216,7 +1176,7 @@ export function ConversationWorkspace({
                 {isFreshVisionContext(visionContext) ? "缓存可用" : "待生成"}
               </span>
             </div>
-            <p>{visionContextStatus}</p>
+            <p>{voicePipeline.visualToolSummary ?? visionContextStatus}</p>
             {visionContext ? (
               <dl>
                 <div>
