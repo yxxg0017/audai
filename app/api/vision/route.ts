@@ -11,14 +11,15 @@ type VisionRequestBody = {
   question?: unknown;
 } & ApiConfigBody;
 
-type OpenAIResponse = {
-  output_text?: string;
-  output?: Array<{
-    content?: Array<{
-      text?: string;
-      type?: string;
-    }>;
+type ChatCompletionMessage = {
+  content?: string | Array<{ text?: string }>;
+};
+
+type ChatCompletionResponse = {
+  choices?: Array<{
+    message?: ChatCompletionMessage;
   }>;
+  model?: string;
   usage?: unknown;
   error?: {
     message?: string;
@@ -29,21 +30,31 @@ const MAX_IMAGE_DATA_URL_LENGTH = 2_000_000;
 const MAX_QUESTION_LENGTH = 500;
 const imageDataUrlPattern = /^data:image\/(?:jpeg|jpg|png|webp);base64,/;
 
-function getOutputText(response: OpenAIResponse) {
-  if (response.output_text) {
-    return response.output_text;
+function getMessageText(message?: ChatCompletionMessage) {
+  if (!message?.content) {
+    return "";
   }
 
-  return response.output
-    ?.flatMap((item) => item.content ?? [])
+  if (typeof message.content === "string") {
+    return message.content;
+  }
+
+  return message.content
     .map((content) => content.text)
     .filter(Boolean)
     .join("\n")
     .trim();
 }
 
-function isGpt5Model(model: string) {
-  return model.startsWith("gpt-5");
+async function readErrorResponse(response: Response) {
+  const text = await response.text();
+
+  try {
+    const data = JSON.parse(text) as ChatCompletionResponse;
+    return data.error?.message ?? (text || "视觉模型调用失败。");
+  } catch {
+    return text || "视觉模型调用失败。";
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -102,32 +113,27 @@ export async function POST(request: NextRequest) {
   ].join("\n");
   const responsePayload = {
     model,
-    input: [
+    messages: [
       {
         role: "user",
         content: [
-          { type: "input_text", text: prompt },
+          { type: "text", text: prompt },
           {
-            type: "input_image",
-            image_url: body.imageDataUrl,
-            detail: "low",
+            type: "image_url",
+            image_url: {
+              url: body.imageDataUrl,
+              detail: "low",
+            },
           },
         ],
       },
     ],
-    max_output_tokens: 360,
-    ...(isGpt5Model(model)
-      ? {
-          reasoning: { effort: "none" },
-          text: { verbosity: "low" },
-        }
-      : {}),
   };
 
   let response: Response;
 
   try {
-    response = await fetch(`${openaiConfig.baseUrl}/responses`, {
+    response = await fetch(`${openaiConfig.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${openaiConfig.apiKey}`,
@@ -142,16 +148,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const data = (await response.json()) as OpenAIResponse;
-
   if (!response.ok) {
     return NextResponse.json(
-      { error: data.error?.message ?? "视觉模型调用失败。" },
+      { error: await readErrorResponse(response) },
       { status: response.status },
     );
   }
 
-  const analysis = getOutputText(data);
+  const data = (await response.json()) as ChatCompletionResponse;
+  const analysis = getMessageText(data.choices?.[0]?.message);
 
   if (!analysis) {
     return NextResponse.json(
@@ -162,7 +167,7 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({
     analysis,
-    model,
+    model: data.model ?? model,
     usage: data.usage ?? null,
     createdAt: new Date().toISOString(),
   });
