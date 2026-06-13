@@ -249,9 +249,19 @@ export function useVoicePipeline() {
     try {
       await new Promise<void>((resolve, reject) => {
         audio.onended = () => resolve();
-        audio.onerror = () => reject(new Error("音频播放失败。"));
+        audio.onerror = () => reject(new Error("音频播放失败，浏览器无法播放本地 TTS 返回的音频。"));
         void audio.play().catch(reject);
       });
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "音频播放失败，浏览器无法播放本地 TTS 返回的音频。";
+      setErrorMessage(message);
+      setBackendSttStatus((current) => ({
+        ...current,
+        errorMessage: message,
+      }));
     } finally {
       URL.revokeObjectURL(audioUrl);
       localAudioRefsRef.current = localAudioRefsRef.current.filter(
