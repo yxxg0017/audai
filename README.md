@@ -134,14 +134,16 @@ npm run voice:local
 ```
 
 启动后访问 `http://127.0.0.1:8766/health`，如果返回 `ok: true`，即可在设置中把“本地语音会话地址”设为 `http://127.0.0.1:8766/voice/turn`。
+健康检查会返回 `ffmpeg`、`whisper-cli`、本地模型文件和 macOS `say` 的可用性；如果 `ok: false`，先根据 `checks` 字段补齐本地环境。
 
 本地 Node 服务接口：
 
 - `POST /voice/turn`：接收 `multipart/form-data` 的 `audio`、`config`、`sessionId`、`turnId`，返回 `text/event-stream`。
-- SSE 事件包括 `stt.final`、`tool.call`、`tool.result`、`llm.delta`、`tts.start`、`tts.audio`、`tts.stop`、`done`。
+- SSE 事件包括 `stt.final`、`tool.call`、`tool.result`、`llm.delta`、`tts.start`、`tts.sentence_start`、`tts.audio`、`tts.stop`、`done`、`error`。
 - `POST /voice/tool-result`：前端收到视觉 tool 请求后补传当前压缩帧。
 
 当用户通过语音询问“画面里有什么”“我面前是什么”等视觉问题时，本地 Node 服务会先根据关键词映射触发视觉 tool，前端补传当前摄像头画面，服务端完成视觉分析后把摘要作为上下文注入回答。
+前端“实时转写”区域会显示 RMS、录音时长、音频大小、turnId 和最近 STT 文本，用于验证麦克风确实触发了 VAD、录音上传和本地转写。
 
 当前已采用的成本控制策略：
 
@@ -166,10 +168,11 @@ npm run build
 1. 启动应用并授权摄像头、麦克风。
 2. 首次进入时填写 OpenAI API Key、Base URL 和模型配置并保存。
 3. 默认使用“语音流水线”，点击“开始语音”后直接说话；如需 Realtime，可在设置菜单切换模式后点击“连接语音”。
-4. 说出“我面前有什么”或“看一下画面里是什么”。
-5. 观察侧栏“语音视觉上下文”是否生成并注入，AI 是否结合画面回答。
-6. 在 AI 回复时继续说话，确认回复可被打断。
-7. 点击顶部“设置”，确认可以修改或清除配置。
+4. 先说一句普通问题，观察“实时转写”是否显示 STT 文本；等待 AI 回复后再说第二句，确认会生成新的 turn。
+5. 说出“我面前有什么”或“看一下画面里是什么”。
+6. 观察视觉 tool 是否自动抓帧并注入上下文，AI 是否结合画面回答。
+7. 在 AI 回复时继续说话，确认回复可被打断。
+8. 点击顶部“设置”，确认可以修改或清除配置。
 
 ## 演示流程
 

@@ -501,3 +501,44 @@ SSE 事件：
 - 非视觉问题不会上传图像。
 - 本地 Node 服务断开时，前端显示可恢复错误。
 - `npm run lint`、`npm run typecheck`、`npm run build` 均通过。
+
+### 9.7 当前实现进度
+
+本模块当前已经落地为一个可演示的本地语音视觉流水线：
+
+1. 前端使用 Web Audio 计算 RMS 音量，并按 VAD 参数识别一句话的开始与结束。
+2. 每个有效语音 turn 使用 `MediaRecorder` 生成 WebM/Opus 音频，通过 `POST /voice/turn` 发给本地 Node 服务。
+3. 前端通过 SSE 读取 `stt.final`、`llm.delta`、`tts.audio`、`tool.call`、`tool.result` 等事件。
+4. UI 会持续显示 RMS、录音时长、上传音频大小、turnId 和最近 STT 文本，用于证明麦克风采集与后端转写链路真实生效。
+5. 本地 Node 服务的 `/health` 会检查 `ffmpeg`、`whisper-cli`、本地模型文件和 macOS `say` 是否可用。
+6. 视觉问题命中关键词后，Node 服务发出 `tool.call`，前端自动抓取当前摄像头压缩帧并回传，服务端再把视觉摘要注入本轮 LLM 回复。
+7. AI 播放时继续保留 VAD 检测，用户插话会取消当前 SSE 请求并停止本地音频播放，然后回到监听状态。
+
+### 9.8 当前 PR 验证方式
+
+启动本地语音服务：
+
+```bash
+npm run voice:local
+```
+
+检查健康状态：
+
+```bash
+curl http://127.0.0.1:8766/health
+```
+
+启动前端：
+
+```bash
+npm run dev
+```
+
+浏览器验证：
+
+1. 使用 `http://localhost:3000` 打开页面，保存 API Key 和 Base URL。
+2. 点击“开始”，确认摄像头画面和麦克风电平可见。
+3. 点击“开始语音”，说第一句话，确认“实时转写”区域显示 RMS、录音时长、上传大小和 STT 文本。
+4. 等 AI 回复后再说第二句话，确认生成新的 turn，且第二句话也能转写。
+5. 说“画面里有什么”或“看一下我面前是什么”，确认自动触发视觉 tool、抓帧和结合画面的回答。
+6. AI 播放时直接插话，确认当前播放被停止，页面回到监听或新一轮录音状态。
