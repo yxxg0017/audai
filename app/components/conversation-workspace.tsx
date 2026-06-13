@@ -350,9 +350,26 @@ export function ConversationWorkspace({
   );
   const visiblePipelineTranscript =
     voicePipeline.interimTranscript ??
-    (voicePipeline.state === "thinking" ? voicePipeline.lastTranscript : null);
+    voicePipeline.lastTranscript;
   const visiblePipelineAnswer = voicePipeline.streamingAnswer;
   const realtimeConversationTranscripts = [...transcripts].reverse();
+  const liveTranscriptText = isPipelineMode
+    ? visiblePipelineTranscript
+    : latestUserTranscript?.text ?? null;
+  const liveAnswerText = isPipelineMode
+    ? visiblePipelineAnswer ?? voicePipeline.lastAnswer
+    : realtimeConversationTranscripts.find(
+        (transcript) => transcript.role === "assistant",
+      )?.text ?? null;
+  const liveTranscriptStatus = isPipelineMode
+    ? voicePipeline.interimTranscript
+      ? "识别中"
+      : voicePipeline.lastTranscript
+        ? "已识别"
+        : "等待说话"
+    : connectionState === "connected"
+      ? getRealtimeTurnStatus(turnState)
+      : getRealtimeStatus(connectionState);
 
   const appendInteraction = useCallback((nextState: SessionState, action: SessionAction) => {
     setMessages((current) =>
@@ -971,6 +988,27 @@ export function ConversationWorkspace({
               停止
             </button>
           </div>
+
+          <section className="live-transcript-panel" aria-label="实时语音转写" aria-live="polite">
+            <div className="live-transcript-item">
+              <span>实时转写</span>
+              <strong>{liveTranscriptStatus}</strong>
+              <p>
+                {liveTranscriptText ??
+                  (isPipelineMode
+                    ? "点击“开始语音”后，这里会显示浏览器 STT 的实时识别文本。"
+                    : "连接 Realtime 后，这里会显示服务端返回的用户语音转写。")}
+              </p>
+            </div>
+            <div className="live-transcript-item live-transcript-answer">
+              <span>AI 回复</span>
+              <strong>{visiblePipelineAnswer ? "流式输出" : "待回复"}</strong>
+              <p>
+                {liveAnswerText ??
+                  "模型开始返回内容后，这里会同步显示流式文本。"}
+              </p>
+            </div>
+          </section>
 
           <label className="vision-question" htmlFor="vision-question">
             <span>视觉问题</span>
