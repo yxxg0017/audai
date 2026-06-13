@@ -211,8 +211,10 @@ function getSessionStateFromPipeline(
 ) {
   const stateByPipeline: Partial<Record<VoicePipelineState, SessionState>> = {
     listening: "listening",
+    transcribing: "thinking",
     thinking: "thinking",
     speaking: "speaking",
+    user_speaking: "listening",
     error: "error",
   };
 
@@ -350,9 +352,45 @@ export function ConversationWorkspace({
   );
   const visiblePipelineTranscript =
     voicePipeline.interimTranscript ??
-    (voicePipeline.state === "thinking" ? voicePipeline.lastTranscript : null);
+    voicePipeline.lastTranscript ??
+    voicePipeline.backendSttStatus.lastTranscript;
   const visiblePipelineAnswer = voicePipeline.streamingAnswer;
   const realtimeConversationTranscripts = [...transcripts].reverse();
+  const liveTranscriptText = isPipelineMode
+    ? visiblePipelineTranscript
+    : latestUserTranscript?.text ?? null;
+  const liveAnswerText = isPipelineMode
+    ? visiblePipelineAnswer ?? voicePipeline.lastAnswer
+    : realtimeConversationTranscripts.find(
+        (transcript) => transcript.role === "assistant",
+      )?.text ?? null;
+  const backendSttStatusText = [
+    `STT：${clientConfig.sttProvider}`,
+    voicePipeline.backendSttStatus.state,
+    `RMS ${voicePipeline.backendSttStatus.lastRms.toFixed(3)}`,
+    `${Math.round(voicePipeline.backendSttStatus.recordingMs / 100) / 10}s`,
+    `${voicePipeline.backendSttStatus.chunkCount} 片`,
+    `${formatBytes(voicePipeline.backendSttStatus.uploadedBytes)}`,
+    voicePipeline.backendSttStatus.lastTurnId ?? "待 turn",
+    voicePipeline.backendSttStatus.mimeType ?? "待录音",
+  ].join(" · ");
+  const liveTranscriptStatus = isPipelineMode
+    ? voicePipeline.interimTranscript
+      ? "识别中"
+      : voicePipeline.lastTranscript
+        ? "已识别"
+        : "等待说话"
+    : connectionState === "connected"
+      ? getRealtimeTurnStatus(turnState)
+      : getRealtimeStatus(connectionState);
+  const activeSessionErrorMessage = isPipelineMode
+    ? voicePipeline.errorMessage ?? errorMessage
+    : realtimeError ?? errorMessage;
+  const overlayStatusText =
+    activeSessionErrorMessage ??
+    (displayedSessionState === "error" && stream
+      ? "语音或会话流程异常，摄像头和麦克风仍在采集，可停止语音后重试。"
+      : sessionDescriptions[displayedSessionState]);
 
   const appendInteraction = useCallback((nextState: SessionState, action: SessionAction) => {
     setMessages((current) =>
@@ -382,6 +420,26 @@ export function ConversationWorkspace({
       ]),
     );
   }, []);
+
+  const handleVisualToolCall = useCallback(async () => {
+    if (!videoRef.current || !stream || !hasVideo) {
+      setVisionContextStatus("视觉工具请求画面，但摄像头未就绪。");
+      return undefined;
+    }
+
+    try {
+      const frame = await captureCompressedFrame(videoRef.current);
+      setLatestFrame(frame);
+      setVisionRequestCount((current) => current + 1);
+      setVisionContextStatus("已为视觉工具提供当前画面。");
+      return frame.dataUrl;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "视觉工具抓帧失败。";
+      setVisionContextStatus(message);
+      return undefined;
+    }
+  }, [hasVideo, stream]);
+
 
   const analyzeAndInjectVisionContext = useCallback(
     async (question: string, source: "voice" | "manual") => {
@@ -836,11 +894,11 @@ export function ConversationWorkspace({
 
             <div className="video-overlay">
               <strong>
-                {errorMessage ?? sessionDescriptions[displayedSessionState]}
+                {overlayStatusText}
               </strong>
               <span>
                 {stream
-                  ? "摄像头和麦克风在本地采集；连接语音后麦克风会通过 WebRTC 发送到 Realtime。"
+                  ? "摄像头和麦克风已采集；语音流水线会上传音频分片到后端 STT，Realtime 会通过 WebRTC 发送麦克风。"
                   : "点击开始后浏览器会请求摄像头和麦克风权限。"}
               </span>
               <div className="audio-meter" aria-label="麦克风输入电平">
@@ -872,13 +930,8 @@ export function ConversationWorkspace({
                     voicePipeline.start({
                       clientConfig,
                       onAnswer: appendPipelineExchange,
-                      onFinalTranscript: async (text) => {
-                        if (!shouldUseVisionForTranscript(text)) {
-                          return undefined;
-                        }
-
-                        return analyzeAndInjectVisionContext(text, "voice");
-                      },
+                      onVisualToolCall: handleVisualToolCall,
+                      stream,
                     })
                   }
                   disabled={!stream || !hasAudio || sessionState === "connecting"}
@@ -960,9 +1013,6 @@ export function ConversationWorkspace({
             >
               发送上下文
             </button>
-            <button type="button" onClick={() => handleAction("fail")}>
-              标记异常
-            </button>
             <button
               type="button"
               onClick={handleStop}
@@ -971,6 +1021,37 @@ export function ConversationWorkspace({
               停止
             </button>
           </div>
+
+          <section className="live-transcript-panel" aria-label="实时语音转写" aria-live="polite">
+            <div className="live-transcript-item">
+              <span>实时转写</span>
+              <strong>{liveTranscriptStatus}</strong>
+              <p>
+                {liveTranscriptText ??
+                  (isPipelineMode
+                    ? "点击“开始语音”后，这里会显示浏览器 STT 的实时识别文本。"
+                    : "连接 Realtime 后，这里会显示服务端返回的用户语音转写。")}
+              </p>
+              {isPipelineMode ? (
+                <small>
+                  {voicePipeline.backendSttStatus.errorMessage ??
+                    backendSttStatusText}
+                </small>
+              ) : null}
+            </div>
+            <div className="live-transcript-item live-transcript-answer">
+              <span>AI 回复</span>
+              <strong>
+                {visiblePipelineAnswer
+                  ? `流式输出 · TTS ${clientConfig.ttsProvider}`
+                  : `待回复 · TTS ${clientConfig.ttsProvider}`}
+              </strong>
+              <p>
+                {liveAnswerText ??
+                  "模型开始返回内容后，这里会同步显示流式文本。"}
+              </p>
+            </div>
+          </section>
 
           <label className="vision-question" htmlFor="vision-question">
             <span>视觉问题</span>

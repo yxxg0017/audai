@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "voice:local": "node scripts/local_voice_server.mjs",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },

@@ -4,7 +4,13 @@ export type ClientConfig = {
   apiKey: string;
   baseUrl: string;
   voiceMode: "pipeline" | "realtime";
+  sttProvider: "browser" | "cloud" | "local";
+  ttsProvider: "browser" | "local";
   chatModel: string;
+  localSttUrl: string;
+  localTtsUrl: string;
+  localTtsVoice: string;
+  localVoiceUrl: string;
   realtimeModel: string;
   realtimeVoice: string;
   realtimeTranscriptionModel: string;
@@ -15,10 +21,16 @@ export const defaultClientConfig: ClientConfig = {
   apiKey: "",
   baseUrl: "https://api.openai.com/v1",
   voiceMode: "pipeline",
+  sttProvider: "cloud",
+  ttsProvider: "browser",
   chatModel: "gpt-5.5",
+  localSttUrl: "http://127.0.0.1:8765/stt",
+  localTtsUrl: "http://127.0.0.1:8765/tts",
+  localTtsVoice: "",
+  localVoiceUrl: "http://127.0.0.1:8766/voice/turn",
   realtimeModel: "gpt-realtime-2",
   realtimeVoice: "marin",
-  realtimeTranscriptionModel: "gpt-4o-mini-transcribe",
+  realtimeTranscriptionModel: "whisper-1",
   visionModel: "gpt-5.5",
 };
 
@@ -39,7 +51,19 @@ export function normalizeClientConfig(config: Partial<ClientConfig>): ClientConf
     apiKey: config.apiKey?.trim() ?? "",
     baseUrl: sanitizeBaseUrl(config.baseUrl ?? defaultClientConfig.baseUrl),
     voiceMode: config.voiceMode === "realtime" ? "realtime" : "pipeline",
+    sttProvider:
+      config.sttProvider === "browser" || config.sttProvider === "local"
+        ? config.sttProvider
+        : "cloud",
+    ttsProvider: config.ttsProvider === "local" ? "local" : "browser",
     chatModel: config.chatModel?.trim() || defaultClientConfig.chatModel,
+    localSttUrl:
+      config.localSttUrl?.trim() || defaultClientConfig.localSttUrl,
+    localTtsUrl:
+      config.localTtsUrl?.trim() || defaultClientConfig.localTtsUrl,
+    localTtsVoice: config.localTtsVoice?.trim() ?? "",
+    localVoiceUrl:
+      config.localVoiceUrl?.trim() || defaultClientConfig.localVoiceUrl,
     realtimeModel:
       config.realtimeModel?.trim() || defaultClientConfig.realtimeModel,
     realtimeVoice:

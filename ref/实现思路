@@ -382,3 +382,163 @@ Realtime Data Channel -> 转写文本、响应状态、VAD 事件、打断事件
 - README 增加本地启动方式。
 - PR 描述包含功能描述、实现思路和测试方式。
 - 用户审查并 merge 后，再进入 PR 2。
+
+## 9. 语音视觉对话重构规划：HTTP POST + SSE + VAD + 视觉 Tool
+
+### 9.1 重构目标
+
+当前语音链路已经能证明麦克风采集、后端 STT 和本地 TTS 可以工作，但固定时间分片转写不适合作为正式语音对话能力。后续实现应参考小智 AI 的语音状态机思路，但保留本项目约束：不使用 WebSocket，继续使用 HTTP POST 上传语音 turn，通过 SSE 返回 STT、LLM、TTS 和视觉 tool 事件。
+
+目标闭环：
+
+1. 前端持续监听麦克风。
+2. Web Audio VAD 检测一句话开始和结束。
+3. 一句话结束后，将该 turn 音频通过 HTTP POST 发给本地 Node 语音服务。
+4. 本地 Node 服务通过 SSE 返回 `stt.final`、`tool.call`、`tool.result`、`llm.delta`、`tts.audio`、`tts.stop`、`done`。
+5. 如果 AI 播放时用户插话，前端取消当前 SSE 和音频播放，开启新的 turn。
+6. 视觉问题通过关键词映射触发视觉 tool，前端补传当前摄像头压缩帧，本地服务完成视觉分析并注入回答上下文。
+
+### 9.2 语音状态机
+
+对齐小智的主要状态：
+
+- `idle`：语音未启动。
+- `listening`：麦克风已打开，VAD 等待用户说话。
+- `user_speaking`：VAD 检测到用户正在说话，前端正在录制当前 turn。
+- `transcribing`：当前 turn 音频已提交，本地服务正在转写。
+- `thinking`：LLM 正在流式生成回复。
+- `speaking`：TTS 正在播放。
+- `error`：当前语音会话异常，可停止后重试。
+
+默认 VAD 参数：
+
+- 音量阈值：`0.035 RMS`。
+- 起始确认：连续 `150ms` 超阈值。
+- 结束确认：连续 `700ms` 低于阈值。
+- 最短有效语音：`500ms`。
+- 最大单句：`12s`。
+- TTS 插话确认：播放时连续 `220ms` 超阈值。
+
+### 9.3 本地 Node 语音服务接口
+
+新增本地 Node 服务，默认端口 `8766`。
+
+前端请求：
+
+```text
+POST http://127.0.0.1:8766/voice/turn
+Content-Type: multipart/form-data
+Accept: text/event-stream
+```
+
+表单字段：
+
+- `sessionId`：当前语音会话 ID。
+- `turnId`：当前用户发言 ID。
+- `audio`：用户该 turn 的 WebM/Opus 音频。
+- `config`：模型、API、TTS 声音、本地服务配置。
+
+SSE 事件：
+
+- `stt.final`：返回用户转写文本。
+- `tool.call`：请求前端调用视觉 tool。
+- `tool.result`：返回视觉摘要。
+- `llm.delta`：返回 AI 文本增量。
+- `tts.start`：TTS 开始。
+- `tts.audio`：返回 base64 音频片段。
+- `tts.stop`：TTS 结束。
+- `done`：当前 turn 完成。
+- `error`：当前 turn 失败。
+
+### 9.4 视觉 Tool 设计
+
+视觉 tool 不再只是手动“分析画面”，而是由语音文本触发：
+
+- `analyze_current_frame`：关键词包括“画面”“看到”“看见”“镜头”“摄像头”“面前”。
+- `identify_object`：关键词包括“这是什么”“是什么东西”“手里”“桌上”。
+- `read_text`：关键词包括“读一下”“文字”“上面写了什么”“牌子”。
+- `describe_scene`：关键词包括“有什么”“描述”“环境”“周围”。
+- `locate_object`：关键词包括“在哪里”“找一下”“有没有”。
+
+触发流程：
+
+1. 本地 Node 服务拿到 `stt.final` 文本后先做关键词匹配。
+2. 命中视觉关键词时，SSE 返回 `tool.call`。
+3. 前端收到 `tool.call` 后抓取当前摄像头压缩帧，POST 到 `/voice/tool-result`。
+4. 本地 Node 服务调用视觉模型，得到摘要后返回 `tool.result`。
+5. LLM 回复时把视觉摘要作为上下文。
+
+### 9.5 PR 拆分
+
+建议后续按以下 PR 推进：
+
+1. `feat(voice): 引入 VAD turn 状态机`
+   - 替换固定分片 STT。
+   - 保留当前页面布局和设置入口。
+   - 让连续两句话生成两个独立 turn。
+
+2. `feat(local): 增加本地 Node 语音 SSE 服务`
+   - 新增 `scripts/local_voice_server.mjs`。
+   - 实现 `/voice/turn`、`/voice/tool-result`、`/health`。
+   - 接入 whisper.cpp、chat completions、macOS `say`。
+
+3. `feat(voice): 支持插话打断`
+   - AI 播放时继续 VAD。
+   - 检测用户说话后中断当前 SSE 和音频。
+   - 自动开启新 turn。
+
+4. `feat(vision): 将视觉分析接入 tool 调用`
+   - 实现关键词映射。
+   - 收到 `tool.call` 后自动抓帧回传。
+   - UI 展示 tool call 和 tool result。
+
+### 9.6 验收标准
+
+- 点击“开始语音”后，第一句话和第二句话都能独立识别。
+- 静音和短噪声不会触发请求。
+- AI 回复期间插话会停止当前播放并开启新 turn。
+- 说“看一下画面里有什么”会自动触发视觉抓帧和视觉分析。
+- 非视觉问题不会上传图像。
+- 本地 Node 服务断开时，前端显示可恢复错误。
+- `npm run lint`、`npm run typecheck`、`npm run build` 均通过。
+
+### 9.7 当前实现进度
+
+本模块当前已经落地为一个可演示的本地语音视觉流水线：
+
+1. 前端使用 Web Audio 计算 RMS 音量，并按 VAD 参数识别一句话的开始与结束。
+2. 每个有效语音 turn 使用 `MediaRecorder` 生成 WebM/Opus 音频，通过 `POST /voice/turn` 发给本地 Node 服务。
+3. 前端通过 SSE 读取 `stt.final`、`llm.delta`、`tts.audio`、`tool.call`、`tool.result` 等事件。
+4. UI 会持续显示 RMS、录音时长、上传音频大小、turnId 和最近 STT 文本，用于证明麦克风采集与后端转写链路真实生效。
+5. 本地 Node 服务的 `/health` 会检查 `ffmpeg`、`whisper-cli`、本地模型文件和 macOS `say` 是否可用。
+6. 视觉问题命中关键词后，Node 服务发出 `tool.call`，前端自动抓取当前摄像头压缩帧并回传，服务端再把视觉摘要注入本轮 LLM 回复。
+7. AI 播放时继续保留 VAD 检测，用户插话会取消当前 SSE 请求并停止本地音频播放，然后回到监听状态。
+
+### 9.8 当前 PR 验证方式
+
+启动本地语音服务：
+
+```bash
+npm run voice:local
+```
+
+检查健康状态：
+
+```bash
+curl http://127.0.0.1:8766/health
+```
+
+启动前端：
+
+```bash
+npm run dev
+```
+
+浏览器验证：
+
+1. 使用 `http://localhost:3000` 打开页面，保存 API Key 和 Base URL。
+2. 点击“开始”，确认摄像头画面和麦克风电平可见。
+3. 点击“开始语音”，说第一句话，确认“实时转写”区域显示 RMS、录音时长、上传大小和 STT 文本。
+4. 等 AI 回复后再说第二句话，确认生成新的 turn，且第二句话也能转写。
+5. 说“画面里有什么”或“看一下我面前是什么”，确认自动触发视觉 tool、抓帧和结合画面的回答。
+6. AI 播放时直接插话，确认当前播放被停止，页面回到监听或新一轮录音状态。

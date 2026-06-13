@@ -109,15 +109,42 @@ OPENAI_API_KEY=你的 OpenAI API Key
 OPENAI_CHAT_MODEL=gpt-5.5
 OPENAI_REALTIME_MODEL=gpt-realtime-2
 OPENAI_REALTIME_VOICE=marin
-OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
+OPENAI_REALTIME_TRANSCRIPTION_MODEL=whisper-1
 OPENAI_VISION_MODEL=gpt-5.5
+LOCAL_STT_URL=http://127.0.0.1:8765/stt
+LOCAL_TTS_URL=http://127.0.0.1:8765/tts
+LOCAL_VOICE_URL=http://127.0.0.1:8766/voice/turn
+LOCAL_TTS_VOICE=
 ```
 
 如果前端配置页填写了 API Key 和 Base URL，服务端 API Route 会优先使用本次请求携带的配置；如果没有填写，则回退到 `.env.local`。配置页保存的是浏览器本地 localStorage，适合本地开发和 demo，不适合作为生产级密钥托管方案。
 
-视觉分析默认使用低细节图片输入和较短输出，以控制调用成本。默认语音模式是“语音流水线”：浏览器完成语音识别和语音播放，服务端只调用文本模型生成回复。设置菜单里也可以切换到 OpenAI Realtime 模式；Realtime 会话通过服务端创建临时 client secret，浏览器只使用短期凭据建立 WebRTC 连接。
+视觉分析默认使用低细节图片输入和较短输出，以控制调用成本。默认语音模式是“语音流水线”：前端用 Web Audio VAD 检测一句话开始和结束，把该 turn 的音频通过 HTTP POST 发给本地 Node 语音服务，并通过 SSE 接收 STT、LLM、TTS 和视觉 tool 事件。设置菜单里也可以切换到 OpenAI Realtime 模式；Realtime 会话通过服务端创建临时 client secret，浏览器只使用短期凭据建立 WebRTC 连接。
 
-当用户通过语音询问“画面里有什么”“我面前是什么”等视觉问题时，前端会按需抽取当前摄像头画面并请求视觉分析，然后把摘要作为上下文发送到 Realtime 会话。视觉上下文默认缓存 60 秒，静止画面或连续追问会优先复用最近摘要，避免重复调用视觉模型。
+本地 STT/TTS 不绑定具体模型实现。建议本机另起一个轻量服务封装 faster-whisper、whisper.cpp、Piper 或 sherpa-onnx：
+
+- 本地 STT：`POST /stt`，接收 `multipart/form-data` 的 `audio` 文件字段，返回 JSON：`{"text":"识别文本"}`。
+- 本地 TTS：`POST /tts`，接收 JSON：`{"text":"待合成文本","voice":"可选声音"}`，直接返回 `audio/wav`、`audio/mpeg` 等音频；也可返回 JSON：`{"audioBase64":"...","mimeType":"audio/wav"}`。
+
+仓库提供了一个本机开发用语音服务，STT 使用 whisper.cpp，TTS 使用 macOS `say`。推荐使用 Node 编排服务：
+
+```bash
+bash scripts/setup_local_voice.sh
+npm run voice:local
+```
+
+启动后访问 `http://127.0.0.1:8766/health`，如果返回 `ok: true`，即可在设置中把“本地语音会话地址”设为 `http://127.0.0.1:8766/voice/turn`。
+健康检查会返回 `ffmpeg`、`whisper-cli`、本地模型文件和 macOS `say` 的可用性；如果 `ok: false`，先根据 `checks` 字段补齐本地环境。
+如果浏览器不是运行在这台 Mac 上，例如用手机或其他局域网设备访问 `http://10.x.x.x:3000`，不要填写 `127.0.0.1`，因为它指向浏览器所在设备本身。此时需要用 `LOCAL_VOICE_HOST=0.0.0.0 npm run voice:local` 启动服务，并把“本地语音会话地址”改为 `http://这台Mac的局域网IP:8766/voice/turn`。
+
+本地 Node 服务接口：
+
+- `POST /voice/turn`：接收 `multipart/form-data` 的 `audio`、`config`、`sessionId`、`turnId`，返回 `text/event-stream`。
+- SSE 事件包括 `stt.final`、`tool.call`、`tool.result`、`llm.delta`、`tts.start`、`tts.sentence_start`、`tts.audio`、`tts.stop`、`done`、`error`。
+- `POST /voice/tool-result`：前端收到视觉 tool 请求后补传当前压缩帧。
+
+当用户通过语音询问“画面里有什么”“我面前是什么”等视觉问题时，本地 Node 服务会先根据关键词映射触发视觉 tool，前端补传当前摄像头画面，服务端完成视觉分析后把摘要作为上下文注入回答。
+前端“实时转写”区域会显示 RMS、录音时长、音频大小、turnId 和最近 STT 文本，用于验证麦克风确实触发了 VAD、录音上传和本地转写。
 
 当前已采用的成本控制策略：
 
@@ -142,10 +169,11 @@ npm run build
 1. 启动应用并授权摄像头、麦克风。
 2. 首次进入时填写 OpenAI API Key、Base URL 和模型配置并保存。
 3. 默认使用“语音流水线”，点击“开始语音”后直接说话；如需 Realtime，可在设置菜单切换模式后点击“连接语音”。
-4. 说出“我面前有什么”或“看一下画面里是什么”。
-5. 观察侧栏“语音视觉上下文”是否生成并注入，AI 是否结合画面回答。
-6. 在 AI 回复时继续说话，确认回复可被打断。
-7. 点击顶部“设置”，确认可以修改或清除配置。
+4. 先说一句普通问题，观察“实时转写”是否显示 STT 文本；等待 AI 回复后再说第二句，确认会生成新的 turn。
+5. 说出“我面前有什么”或“看一下画面里是什么”。
+6. 观察视觉 tool 是否自动抓帧并注入上下文，AI 是否结合画面回答。
+7. 在 AI 回复时继续说话，确认回复可被打断。
+8. 点击顶部“设置”，确认可以修改或清除配置。
 
 ## 演示流程
 
