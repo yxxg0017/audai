@@ -30,9 +30,14 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
   const apiKeyRef = useRef<HTMLInputElement | null>(null);
   const baseUrlRef = useRef<HTMLInputElement | null>(null);
   const chatModelRef = useRef<HTMLInputElement | null>(null);
+  const localSttUrlRef = useRef<HTMLInputElement | null>(null);
+  const localTtsUrlRef = useRef<HTMLInputElement | null>(null);
+  const localTtsVoiceRef = useRef<HTMLInputElement | null>(null);
   const realtimeModelRef = useRef<HTMLInputElement | null>(null);
   const realtimeTranscriptionModelRef = useRef<HTMLInputElement | null>(null);
   const realtimeVoiceRef = useRef<HTMLInputElement | null>(null);
+  const sttProviderRef = useRef<HTMLSelectElement | null>(null);
+  const ttsProviderRef = useRef<HTMLSelectElement | null>(null);
   const visionModelRef = useRef<HTMLInputElement | null>(null);
   const voiceModeRef = useRef<HTMLSelectElement | null>(null);
   const detectedConfigRef = useRef<Partial<ClientConfig>>({});
@@ -50,6 +55,18 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
         chatModelRef.current?.value ??
         detectedConfigRef.current.chatModel ??
         config.chatModel,
+      localSttUrl:
+        localSttUrlRef.current?.value ??
+        detectedConfigRef.current.localSttUrl ??
+        config.localSttUrl,
+      localTtsUrl:
+        localTtsUrlRef.current?.value ??
+        detectedConfigRef.current.localTtsUrl ??
+        config.localTtsUrl,
+      localTtsVoice:
+        localTtsVoiceRef.current?.value ??
+        detectedConfigRef.current.localTtsVoice ??
+        config.localTtsVoice,
       realtimeModel:
         realtimeModelRef.current?.value ??
         detectedConfigRef.current.realtimeModel ??
@@ -68,6 +85,13 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
         config.visionModel,
       voiceMode:
         voiceModeRef.current?.value === "realtime" ? "realtime" : "pipeline",
+      sttProvider:
+        sttProviderRef.current?.value === "browser" ||
+        sttProviderRef.current?.value === "local"
+          ? sttProviderRef.current.value
+          : "cloud",
+      ttsProvider:
+        ttsProviderRef.current?.value === "local" ? "local" : "browser",
     });
   }
 
@@ -172,6 +196,29 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
               </select>
             </label>
             <label>
+              <span>STT 来源</span>
+              <select
+                defaultValue={config.sttProvider}
+                name="sttProvider"
+                ref={sttProviderRef}
+              >
+                <option value="cloud">云端转写 API</option>
+                <option value="local">本地 STT 模型</option>
+                <option value="browser">浏览器识别</option>
+              </select>
+            </label>
+            <label>
+              <span>TTS 来源</span>
+              <select
+                defaultValue={config.ttsProvider}
+                name="ttsProvider"
+                ref={ttsProviderRef}
+              >
+                <option value="browser">浏览器语音合成</option>
+                <option value="local">本地 TTS 模型</option>
+              </select>
+            </label>
+            <label>
               <span>视觉模型</span>
               <input
                 defaultValue={config.visionModel}
@@ -185,6 +232,35 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
                 defaultValue={config.chatModel}
                 name="chatModel"
                 ref={chatModelRef}
+              />
+            </label>
+            <label>
+              <span>本地 STT 地址</span>
+              <input
+                defaultValue={config.localSttUrl}
+                name="localSttUrl"
+                placeholder="http://127.0.0.1:8765/stt"
+                ref={localSttUrlRef}
+                type="url"
+              />
+            </label>
+            <label>
+              <span>本地 TTS 地址</span>
+              <input
+                defaultValue={config.localTtsUrl}
+                name="localTtsUrl"
+                placeholder="http://127.0.0.1:8765/tts"
+                ref={localTtsUrlRef}
+                type="url"
+              />
+            </label>
+            <label>
+              <span>本地 TTS 声音</span>
+              <input
+                defaultValue={config.localTtsVoice}
+                name="localTtsVoice"
+                placeholder="可选，由本地服务决定"
+                ref={localTtsVoiceRef}
               />
             </label>
             <label>

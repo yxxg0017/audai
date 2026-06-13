@@ -163,6 +163,8 @@ export function useVoicePipeline() {
     uploadedBytes: 0,
   });
   const backendTranscriptInFlightRef = useRef(false);
+  const currentClientConfigRef = useRef<ClientConfig | null>(null);
+  const localAudioRefsRef = useRef<HTMLAudioElement[]>([]);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const pendingSpeechCountRef = useRef(0);
@@ -171,6 +173,11 @@ export function useVoicePipeline() {
   const stopSpeaking = useCallback(() => {
     const speechSynthesis = getSpeechSynthesis();
     pendingSpeechCountRef.current = 0;
+    localAudioRefsRef.current.forEach((audio) => {
+      audio.pause();
+      audio.src = "";
+    });
+    localAudioRefsRef.current = [];
 
     if (speechSynthesis?.speaking) {
       speechSynthesis.cancel();
@@ -195,6 +202,73 @@ export function useVoicePipeline() {
   }, [stopSpeaking]);
 
   const enqueueSpeech = useCallback((text: string) => {
+    const clientConfig = currentClientConfigRef.current;
+
+    if (clientConfig?.ttsProvider === "local") {
+      pendingSpeechCountRef.current += 1;
+      setState("speaking");
+
+      void (async () => {
+        try {
+          const response = await fetch("/api/tts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              openai: clientConfig,
+              text,
+            }),
+          });
+
+          if (!response.ok) {
+            const payload = (await response.json()) as { error?: string };
+            throw new Error(payload.error ?? "本地 TTS 合成失败。");
+          }
+
+          const audioUrl = URL.createObjectURL(await response.blob());
+          const audio = new Audio(audioUrl);
+          localAudioRefsRef.current.push(audio);
+          audio.onended = () => {
+            URL.revokeObjectURL(audioUrl);
+            localAudioRefsRef.current = localAudioRefsRef.current.filter(
+              (item) => item !== audio,
+            );
+            pendingSpeechCountRef.current = Math.max(
+              0,
+              pendingSpeechCountRef.current - 1,
+            );
+
+            if (pendingSpeechCountRef.current === 0) {
+              setState(shouldListenRef.current ? "listening" : "idle");
+            }
+          };
+          audio.onerror = () => {
+            URL.revokeObjectURL(audioUrl);
+            localAudioRefsRef.current = localAudioRefsRef.current.filter(
+              (item) => item !== audio,
+            );
+            pendingSpeechCountRef.current = Math.max(
+              0,
+              pendingSpeechCountRef.current - 1,
+            );
+            setErrorMessage("本地 TTS 音频播放失败。");
+            setState("error");
+          };
+          await audio.play();
+        } catch (error) {
+          pendingSpeechCountRef.current = Math.max(
+            0,
+            pendingSpeechCountRef.current - 1,
+          );
+          setErrorMessage(
+            error instanceof Error ? error.message : "本地 TTS 合成失败。",
+          );
+          setState("error");
+        }
+      })();
+
+      return true;
+    }
+
     const speechSynthesis = getSpeechSynthesis();
 
     if (!speechSynthesis || typeof SpeechSynthesisUtterance === "undefined") {
@@ -344,6 +418,7 @@ export function useVoicePipeline() {
       visualContext?: string;
     }) => {
       const trimmedMessage = message.trim();
+      currentClientConfigRef.current = clientConfig;
 
       if (!trimmedMessage) {
         return;
@@ -603,6 +678,7 @@ export function useVoicePipeline() {
       }
 
       stopSpeaking();
+      currentClientConfigRef.current = clientConfig;
       shouldListenRef.current = true;
       setErrorMessage(null);
       setBackendSttStatus((current) => ({
@@ -610,12 +686,22 @@ export function useVoicePipeline() {
         errorMessage: null,
       }));
 
-      if (stream) {
+      if (stream && clientConfig.sttProvider !== "browser") {
         startBackendStt({
           clientConfig,
           onAnswer,
           onFinalTranscript,
           stream,
+        });
+      } else if (clientConfig.sttProvider === "browser") {
+        setBackendSttStatus({
+          chunkCount: 0,
+          errorMessage: null,
+          lastChunkBytes: 0,
+          lastTranscript: null,
+          mimeType: null,
+          state: "idle",
+          uploadedBytes: 0,
         });
       }
 

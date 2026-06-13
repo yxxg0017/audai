@@ -362,7 +362,8 @@ export function ConversationWorkspace({
         (transcript) => transcript.role === "assistant",
       )?.text ?? null;
   const backendSttStatusText = [
-    `后端 STT：${voicePipeline.backendSttStatus.state}`,
+    `STT：${clientConfig.sttProvider}`,
+    voicePipeline.backendSttStatus.state,
     `${voicePipeline.backendSttStatus.chunkCount} 片`,
     `${formatBytes(voicePipeline.backendSttStatus.uploadedBytes)}`,
     voicePipeline.backendSttStatus.mimeType ?? "待录音",
@@ -1015,7 +1016,11 @@ export function ConversationWorkspace({
             </div>
             <div className="live-transcript-item live-transcript-answer">
               <span>AI 回复</span>
-              <strong>{visiblePipelineAnswer ? "流式输出" : "待回复"}</strong>
+              <strong>
+                {visiblePipelineAnswer
+                  ? `流式输出 · TTS ${clientConfig.ttsProvider}`
+                  : `待回复 · TTS ${clientConfig.ttsProvider}`}
+              </strong>
               <p>
                 {liveAnswerText ??
                   "模型开始返回内容后，这里会同步显示流式文本。"}

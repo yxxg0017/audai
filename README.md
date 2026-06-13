@@ -109,13 +109,21 @@ OPENAI_API_KEY=你的 OpenAI API Key
 OPENAI_CHAT_MODEL=gpt-5.5
 OPENAI_REALTIME_MODEL=gpt-realtime-2
 OPENAI_REALTIME_VOICE=marin
-OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
+OPENAI_REALTIME_TRANSCRIPTION_MODEL=whisper-1
 OPENAI_VISION_MODEL=gpt-5.5
+LOCAL_STT_URL=http://127.0.0.1:8765/stt
+LOCAL_TTS_URL=http://127.0.0.1:8765/tts
+LOCAL_TTS_VOICE=
 ```
 
 如果前端配置页填写了 API Key 和 Base URL，服务端 API Route 会优先使用本次请求携带的配置；如果没有填写，则回退到 `.env.local`。配置页保存的是浏览器本地 localStorage，适合本地开发和 demo，不适合作为生产级密钥托管方案。
 
-视觉分析默认使用低细节图片输入和较短输出，以控制调用成本。默认语音模式是“语音流水线”：浏览器完成语音识别和语音播放，服务端只调用文本模型生成回复。设置菜单里也可以切换到 OpenAI Realtime 模式；Realtime 会话通过服务端创建临时 client secret，浏览器只使用短期凭据建立 WebRTC 连接。
+视觉分析默认使用低细节图片输入和较短输出，以控制调用成本。默认语音模式是“语音流水线”：可以在设置菜单选择浏览器识别、云端转写 API 或本地 STT 服务；TTS 可以选择浏览器语音合成或本地 TTS 服务。设置菜单里也可以切换到 OpenAI Realtime 模式；Realtime 会话通过服务端创建临时 client secret，浏览器只使用短期凭据建立 WebRTC 连接。
+
+本地 STT/TTS 不绑定具体模型实现。建议本机另起一个轻量服务封装 faster-whisper、whisper.cpp、Piper 或 sherpa-onnx：
+
+- 本地 STT：`POST /stt`，接收 `multipart/form-data` 的 `audio` 文件字段，返回 JSON：`{"text":"识别文本"}`。
+- 本地 TTS：`POST /tts`，接收 JSON：`{"text":"待合成文本","voice":"可选声音"}`，直接返回 `audio/wav`、`audio/mpeg` 等音频；也可返回 JSON：`{"audioBase64":"...","mimeType":"audio/wav"}`。
 
 当用户通过语音询问“画面里有什么”“我面前是什么”等视觉问题时，前端会按需抽取当前摄像头画面并请求视觉分析，然后把摘要作为上下文发送到 Realtime 会话。视觉上下文默认缓存 60 秒，静止画面或连续追问会优先复用最近摘要，避免重复调用视觉模型。
 
