@@ -125,6 +125,16 @@ LOCAL_TTS_VOICE=
 - 本地 STT：`POST /stt`，接收 `multipart/form-data` 的 `audio` 文件字段，返回 JSON：`{"text":"识别文本"}`。
 - 本地 TTS：`POST /tts`，接收 JSON：`{"text":"待合成文本","voice":"可选声音"}`，直接返回 `audio/wav`、`audio/mpeg` 等音频；也可返回 JSON：`{"audioBase64":"...","mimeType":"audio/wav"}`。
 
+仓库提供了一个本机开发用语音服务，STT 使用 whisper.cpp，TTS 使用 macOS `say`：
+
+```bash
+bash scripts/setup_local_voice.sh
+LOCAL_STT_MODEL_PATH=/Users/yxxg/audai/models/local-voice/ggml-base.bin \
+  .venv-local-voice/bin/python scripts/local_voice_service.py
+```
+
+启动后访问 `http://127.0.0.1:8765/health`，如果返回 `ok: true`，即可在设置中把 STT 来源切为“本地 STT 模型”、TTS 来源切为“本地 TTS 模型”。
+
 当用户通过语音询问“画面里有什么”“我面前是什么”等视觉问题时，前端会按需抽取当前摄像头画面并请求视觉分析，然后把摘要作为上下文发送到 Realtime 会话。视觉上下文默认缓存 60 秒，静止画面或连续追问会优先复用最近摘要，避免重复调用视觉模型。
 
 当前已采用的成本控制策略：

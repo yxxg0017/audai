@@ -8,6 +8,7 @@
 # Dependencies
 node_modules/
 .venv/
+.venv-local-voice/
 venv/
 __pycache__/
 *.py[cod]
@@ -39,3 +40,4 @@ captures/
 *.mov
 
 certificates
+models/
