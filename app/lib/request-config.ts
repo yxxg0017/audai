@@ -9,6 +9,7 @@ type OpenAIRequestConfig = {
   baseUrl: string;
   chatModel: string;
   localSttUrl: string;
+  localTtsEngine: "say" | "piper";
   localTtsUrl: string;
   localTtsVoice: string;
   localVoiceUrl: string;
@@ -38,6 +39,10 @@ function readTtsProvider(value: unknown) {
   return value === "local" ? "local" : "browser";
 }
 
+function readLocalTtsEngine(value: unknown) {
+  return value === "piper" ? "piper" : "say";
+}
+
 export function getOpenAIRequestConfig(body: ApiConfigBody) {
   const openai = body.openai && typeof body.openai === "object"
     ? (body.openai as Record<string, unknown>)
@@ -54,6 +59,9 @@ export function getOpenAIRequestConfig(body: ApiConfigBody) {
       readString(openai.localSttUrl) ||
       process.env.LOCAL_STT_URL?.trim() ||
       "http://127.0.0.1:8765/stt",
+    localTtsEngine: readLocalTtsEngine(
+      readString(openai.localTtsEngine) || process.env.LOCAL_TTS_ENGINE?.trim(),
+    ),
     localTtsUrl:
       readString(openai.localTtsUrl) ||
       process.env.LOCAL_TTS_URL?.trim() ||

@@ -7,6 +7,7 @@ type BackendSttStatus = {
   chunkCount: number;
   errorMessage: string | null;
   lastChunkBytes: number;
+  lastMetrics: Record<string, number>;
   lastRms: number;
   lastTranscript: string | null;
   lastTurnId: string | null;
@@ -31,6 +32,7 @@ type VoiceSseEvent = {
   audioBase64?: string;
   keywords?: string[];
   message?: string;
+  ms?: number;
   mimeType?: string;
   model?: string;
   name?: string;
@@ -193,6 +195,7 @@ export function useVoicePipeline() {
     chunkCount: 0,
     errorMessage: null,
     lastChunkBytes: 0,
+    lastMetrics: {},
     lastRms: 0,
     lastTranscript: null,
     lastTurnId: null,
@@ -553,6 +556,17 @@ export function useVoicePipeline() {
 
       if (event === "tool.result") {
         setVisualToolSummary(data.summary ?? null);
+        return;
+      }
+
+      if (event === "metric" && data.name && typeof data.ms === "number") {
+        setBackendSttStatus((current) => ({
+          ...current,
+          lastMetrics: {
+            ...current.lastMetrics,
+            [data.name ?? "unknown"]: data.ms ?? 0,
+          },
+        }));
         return;
       }
 
@@ -1100,6 +1114,7 @@ export function useVoicePipeline() {
         chunkCount: 0,
         errorMessage: null,
         lastChunkBytes: 0,
+        lastMetrics: {},
         lastRms: 0,
         lastTranscript: null,
         lastTurnId: null,

@@ -21,6 +21,10 @@ const whisperBeamSize = readPositiveInteger(process.env.LOCAL_WHISPER_BEAM_SIZE,
 const whisperBestOf = readPositiveInteger(process.env.LOCAL_WHISPER_BEST_OF, 5);
 const sttAudioFilter =
   process.env.LOCAL_STT_AUDIO_FILTER ?? "highpass=f=80,lowpass=f=8000,loudnorm";
+const defaultTtsEngine = process.env.LOCAL_TTS_ENGINE ?? "say";
+const piperCli = process.env.LOCAL_PIPER_CLI ?? "piper";
+const piperModelPath = process.env.LOCAL_PIPER_MODEL_PATH ?? "";
+const piperConfigPath = process.env.LOCAL_PIPER_CONFIG_PATH ?? "";
 const maxToolWaitMs = 8000;
 const pendingToolResults = new Map();
 const traditionalToSimplifiedMap = new Map([
@@ -149,17 +153,23 @@ async function canRunCommand(command, args) {
 }
 
 async function readHealthStatus() {
-  const [modelReady, ffmpegReady, whisperReady, sayReady] = await Promise.all([
+  const [modelReady, ffmpegReady, whisperReady, sayReady, piperReady, piperModelReady] = await Promise.all([
     canReadFile(modelPath),
     canRunCommand("ffmpeg", ["-version"]),
     canRunCommand(whisperCli, ["--help"]),
     canRunCommand("say", ["-v", "?"]),
+    canRunCommand(piperCli, ["--help"]),
+    piperModelPath ? canReadFile(piperModelPath) : Promise.resolve(false),
   ]);
+
+  const ttsEngine = defaultTtsEngine === "piper" ? "piper" : "say";
 
   const checks = {
     ffmpeg: ffmpegReady,
     model: modelReady,
-    say: sayReady,
+    say: ttsEngine === "say" ? sayReady : true,
+    piper: ttsEngine === "piper" ? piperReady : true,
+    piperModel: ttsEngine === "piper" ? piperModelReady : true,
     whisper: whisperReady,
   };
 
@@ -172,6 +182,11 @@ async function readHealthStatus() {
     service: "audai-local-voice-node",
     sttAudioFilter,
     sttPromptEnabled: Boolean(sttPrompt.trim()),
+    tts: {
+      engine: ttsEngine,
+      piperCli,
+      piperModelPath,
+    },
     whisperCli,
     whisperDecode: {
       beamSize: whisperBeamSize,
@@ -239,7 +254,7 @@ async function transcribeAudio(audio) {
   }
 }
 
-async function synthesizeSpeech(text, voice) {
+async function synthesizeSpeechWithSay(text, voice) {
   const dir = join(tmpdir(), "audai-local-voice");
   await mkdir(dir, { recursive: true });
   const id = randomUUID();
@@ -269,6 +284,59 @@ async function synthesizeSpeech(text, voice) {
     void rm(aiffPath, { force: true });
     void rm(wavPath, { force: true });
   }
+}
+
+async function synthesizeSpeechWithPiper(text, voice) {
+  const dir = join(tmpdir(), "audai-local-voice");
+  await mkdir(dir, { recursive: true });
+  const wavPath = join(dir, `${randomUUID()}.wav`);
+  const model = voice || piperModelPath;
+
+  if (!model) {
+    throw new Error("已选择 Piper TTS，但未配置 LOCAL_PIPER_MODEL_PATH 或本地 TTS 声音模型路径。");
+  }
+
+  const args = ["--model", model, "--output_file", wavPath];
+  if (piperConfigPath) {
+    args.push("--config", piperConfigPath);
+  }
+
+  await new Promise((resolve, reject) => {
+    const child = spawn(piperCli, args);
+    const stderr = [];
+    child.stderr.on("data", (chunk) => stderr.push(chunk));
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(new Error(Buffer.concat(stderr).toString("utf8").trim() || `${piperCli} exited with ${code}`));
+    });
+    child.stdin.end(text);
+  });
+
+  try {
+    const audio = await readFile(wavPath);
+    return {
+      audioBase64: audio.toString("base64"),
+      mimeType: "audio/wav",
+    };
+  } finally {
+    void rm(wavPath, { force: true });
+  }
+}
+
+async function synthesizeSpeech(text, config) {
+  const engine = config.localTtsEngine === "piper" || defaultTtsEngine === "piper"
+    ? "piper"
+    : "say";
+
+  if (engine === "piper") {
+    return synthesizeSpeechWithPiper(text, config.localTtsVoice);
+  }
+
+  return synthesizeSpeechWithSay(text, config.localTtsVoice);
 }
 
 function detectVisualTool(text) {
@@ -375,26 +443,51 @@ function extractSpeakableSegments(text) {
   return { rest: text.slice(start), segments };
 }
 
-async function streamChat({ config, send, text, turnId, visualSummary }) {
+async function streamChat({ config, imageDataUrl, send, text, timings, turnId, visualTool }) {
   if (!config.apiKey) {
     throw new Error("未配置 API Key，无法调用聊天模型。请先在前端保存 OpenAI-compatible 配置。");
   }
 
+  const hasVisualInput = Boolean(imageDataUrl && visualTool);
+  const model = hasVisualInput ? config.visionModel : config.chatModel;
+  const promptText = [
+    "你是一个低延迟 AI 视觉对话助手。",
+    "请用自然简体中文回答，默认不超过 3 句话。",
+    hasVisualInput
+      ? [
+          "当前用户问题命中了视觉工具，摄像头抽帧已经作为图片输入。",
+          visualTool.prompt,
+          "请直接结合图片回答；看不清或无法判断时要明确说明不确定。",
+        ].join("\n")
+      : "",
+    `用户问题：${text}`,
+  ].filter(Boolean).join("\n");
+  const content = hasVisualInput
+    ? [
+        { type: "text", text: promptText },
+        {
+          image_url: { detail: "low", url: imageDataUrl },
+          type: "image_url",
+        },
+      ]
+    : promptText;
   const messages = [
     {
-      content: [
-        "你是一个低延迟 AI 视觉对话助手。",
-        "请用自然简体中文回答，默认不超过 3 句话。",
-        visualSummary ? `视觉工具结果：${visualSummary}` : "",
-        `用户问题：${text}`,
-      ].filter(Boolean).join("\n"),
+      content,
       role: "user",
     },
   ];
+  send("metric", {
+    name: "llm_request_start",
+    ms: Math.round(performance.now() - timings.startedAt),
+    model,
+    turnId,
+  });
   const response = await fetch(`${config.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
     body: JSON.stringify({
+      max_tokens: hasVisualInput ? 220 : 300,
       messages,
-      model: config.chatModel,
+      model,
       stream: true,
     }),
     headers: {
@@ -406,7 +499,7 @@ async function streamChat({ config, send, text, turnId, visualSummary }) {
   if (!response.ok || !response.body) {
     const payload = await response.json().catch(() => ({}));
     throw new Error(
-      `文本模型调用失败，模型 ${config.chatModel}：${payload.error?.message ?? "未知错误。"}`,
+      `文本模型调用失败，模型 ${model}：${payload.error?.message ?? "未知错误。"}`,
     );
   }
 
@@ -414,16 +507,30 @@ async function streamChat({ config, send, text, turnId, visualSummary }) {
   const decoder = new TextDecoder();
   let buffer = "";
   let speechBuffer = "";
+  let firstTokenSent = false;
   let ttsStarted = false;
+  let ttsQueue = Promise.resolve();
 
-  async function speakSegment(segment) {
+  function queueSpeakSegment(segment) {
     if (!ttsStarted) {
       send("tts.start", { turnId });
       ttsStarted = true;
     }
     send("tts.sentence_start", { text: segment, turnId });
-    const audio = await synthesizeSpeech(segment, config.localTtsVoice);
-    send("tts.audio", { ...audio, text: segment, turnId });
+    ttsQueue = ttsQueue.then(async () => {
+      const audioStartedAt = performance.now();
+      const audio = await synthesizeSpeech(segment, config);
+      if (!timings.firstAudioAt) {
+        timings.firstAudioAt = performance.now();
+        send("metric", {
+          name: "tts_first_audio",
+          ms: Math.round(timings.firstAudioAt - timings.startedAt),
+          synthMs: Math.round(timings.firstAudioAt - audioStartedAt),
+          turnId,
+        });
+      }
+      send("tts.audio", { ...audio, text: segment, turnId });
+    });
   }
 
   async function handleLine(line) {
@@ -440,12 +547,22 @@ async function streamChat({ config, send, text, turnId, visualSummary }) {
     if (!delta) {
       return;
     }
+    if (!firstTokenSent) {
+      firstTokenSent = true;
+      timings.firstTokenAt = performance.now();
+      send("metric", {
+        name: "llm_first_token",
+        ms: Math.round(timings.firstTokenAt - timings.startedAt),
+        model,
+        turnId,
+      });
+    }
     send("llm.delta", { text: delta, turnId });
     speechBuffer += delta;
     const { rest, segments } = extractSpeakableSegments(speechBuffer);
     speechBuffer = rest;
     for (const segment of segments) {
-      await speakSegment(segment);
+      queueSpeakSegment(segment);
     }
   }
 
@@ -465,8 +582,9 @@ async function streamChat({ config, send, text, turnId, visualSummary }) {
     await handleLine(buffer);
   }
   if (speechBuffer.trim()) {
-    await speakSegment(speechBuffer.trim());
+    queueSpeakSegment(speechBuffer.trim());
   }
+  await ttsQueue;
   if (ttsStarted) {
     send("tts.stop", { turnId });
   }
@@ -479,12 +597,22 @@ async function handleVoiceTurn(request, response) {
   const sessionId = String(formData.get("sessionId") ?? "default");
   const config = JSON.parse(String(formData.get("config") ?? "{}"));
   const send = createSse(response);
+  const timings = {
+    firstAudioAt: 0,
+    firstTokenAt: 0,
+    startedAt: performance.now(),
+  };
 
   try {
     if (!(audio instanceof File)) {
       throw new Error("缺少音频文件。");
     }
     const text = await transcribeAudio(audio);
+    send("metric", {
+      name: "stt_final",
+      ms: Math.round(performance.now() - timings.startedAt),
+      turnId,
+    });
     send("stt.final", { sessionId, text, turnId });
 
     if (!text.trim()) {
@@ -497,9 +625,10 @@ async function handleVoiceTurn(request, response) {
       return;
     }
 
-    let visualSummary = "";
+    let imageDataUrl = "";
     const visualTool = detectVisualTool(text);
     if (visualTool) {
+      const toolStartedAt = performance.now();
       send("tool.call", {
         keywords: visualTool.keywords,
         name: visualTool.name,
@@ -507,16 +636,16 @@ async function handleVoiceTurn(request, response) {
         turnId,
       });
       const result = await waitForToolResult(turnId);
+      send("metric", {
+        name: "vision_wait",
+        ms: Math.round(performance.now() - toolStartedAt),
+        turnId,
+      });
       if (result?.imageDataUrl) {
-        visualSummary = await analyzeImage({
-          config,
-          imageDataUrl: result.imageDataUrl,
-          question: text,
-          tool: visualTool,
-        });
+        imageDataUrl = result.imageDataUrl;
         send("tool.result", {
           name: visualTool.name,
-          summary: visualSummary,
+          summary: "已接收当前画面，将直接并入本轮多模态流式回答。",
           turnId,
         });
       } else {
@@ -529,8 +658,13 @@ async function handleVoiceTurn(request, response) {
     }
 
     if (text) {
-      await streamChat({ config, send, text, turnId, visualSummary });
+      await streamChat({ config, imageDataUrl, send, text, timings, turnId, visualTool });
     }
+    send("metric", {
+      name: "total",
+      ms: Math.round(performance.now() - timings.startedAt),
+      turnId,
+    });
     send("done", { sessionId, turnId });
     response.end();
   } catch (error) {

@@ -31,6 +31,7 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
   const baseUrlRef = useRef<HTMLInputElement | null>(null);
   const chatModelRef = useRef<HTMLInputElement | null>(null);
   const localSttUrlRef = useRef<HTMLInputElement | null>(null);
+  const localTtsEngineRef = useRef<HTMLSelectElement | null>(null);
   const localTtsUrlRef = useRef<HTMLInputElement | null>(null);
   const localTtsVoiceRef = useRef<HTMLInputElement | null>(null);
   const localVoiceUrlRef = useRef<HTMLInputElement | null>(null);
@@ -60,6 +61,8 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
         localSttUrlRef.current?.value ??
         detectedConfigRef.current.localSttUrl ??
         config.localSttUrl,
+      localTtsEngine:
+        localTtsEngineRef.current?.value === "piper" ? "piper" : "say",
       localTtsUrl:
         localTtsUrlRef.current?.value ??
         detectedConfigRef.current.localTtsUrl ??
@@ -275,6 +278,17 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
               />
             </label>
             <label>
+              <span>本地 TTS 引擎</span>
+              <select
+                defaultValue={config.localTtsEngine}
+                name="localTtsEngine"
+                ref={localTtsEngineRef}
+              >
+                <option value="say">macOS say 兜底</option>
+                <option value="piper">Piper 本地声线</option>
+              </select>
+            </label>
+            <label>
               <span>本地 TTS 地址</span>
               <input
                 defaultValue={config.localTtsUrl}
@@ -289,7 +303,7 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
               <input
                 defaultValue={config.localTtsVoice}
                 name="localTtsVoice"
-                placeholder="可选，由本地服务决定"
+                placeholder="say 声音名或 Piper .onnx 模型路径"
                 ref={localTtsVoiceRef}
               />
             </label>

@@ -355,6 +355,18 @@ export function ConversationWorkspace({
     voicePipeline.backendSttStatus.lastTranscript;
   const visiblePipelineAnswer = voicePipeline.streamingAnswer;
   const realtimeConversationTranscripts = [...transcripts].reverse();
+  const pipelineMetrics = voicePipeline.backendSttStatus.lastMetrics;
+  const pipelineMetricText = [
+    pipelineMetrics.stt_final ? `STT ${pipelineMetrics.stt_final}ms` : "",
+    pipelineMetrics.vision_wait ? `视觉等待 ${pipelineMetrics.vision_wait}ms` : "",
+    pipelineMetrics.llm_first_token
+      ? `首 token ${pipelineMetrics.llm_first_token}ms`
+      : "",
+    pipelineMetrics.tts_first_audio
+      ? `首音频 ${pipelineMetrics.tts_first_audio}ms`
+      : "",
+    pipelineMetrics.total ? `总计 ${pipelineMetrics.total}ms` : "",
+  ].filter(Boolean).join(" · ");
   const liveTranscriptText = isPipelineMode
     ? visiblePipelineTranscript
     : latestUserTranscript?.text ?? null;
@@ -372,7 +384,8 @@ export function ConversationWorkspace({
     `${formatBytes(voicePipeline.backendSttStatus.uploadedBytes)}`,
     voicePipeline.backendSttStatus.lastTurnId ?? "待 turn",
     voicePipeline.backendSttStatus.mimeType ?? "待录音",
-  ].join(" · ");
+    pipelineMetricText,
+  ].filter(Boolean).join(" · ");
   const liveTranscriptStatus = isPipelineMode
     ? voicePipeline.interimTranscript
       ? "识别中"

@@ -8,6 +8,7 @@ export type ClientConfig = {
   ttsProvider: "browser" | "local";
   chatModel: string;
   localSttUrl: string;
+  localTtsEngine: "say" | "piper";
   localTtsUrl: string;
   localTtsVoice: string;
   localVoiceUrl: string;
@@ -25,6 +26,7 @@ export const defaultClientConfig: ClientConfig = {
   ttsProvider: "browser",
   chatModel: "gpt-5.5",
   localSttUrl: "http://127.0.0.1:8765/stt",
+  localTtsEngine: "say",
   localTtsUrl: "http://127.0.0.1:8765/tts",
   localTtsVoice: "",
   localVoiceUrl: "http://127.0.0.1:8766/voice/turn",
@@ -59,6 +61,7 @@ export function normalizeClientConfig(config: Partial<ClientConfig>): ClientConf
     chatModel: config.chatModel?.trim() || defaultClientConfig.chatModel,
     localSttUrl:
       config.localSttUrl?.trim() || defaultClientConfig.localSttUrl,
+    localTtsEngine: config.localTtsEngine === "piper" ? "piper" : "say",
     localTtsUrl:
       config.localTtsUrl?.trim() || defaultClientConfig.localTtsUrl,
     localTtsVoice: config.localTtsVoice?.trim() ?? "",
