@@ -441,6 +441,14 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.live-transcript-item small {
+  margin-top: auto;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .vision-question {
   padding: 12px;
   display: flex;

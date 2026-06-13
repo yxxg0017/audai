@@ -33,6 +33,16 @@ type SpeechRecognitionLike = EventTarget & {
 
 type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
 
+type BackendSttStatus = {
+  chunkCount: number;
+  errorMessage: string | null;
+  lastChunkBytes: number;
+  lastTranscript: string | null;
+  mimeType: string | null;
+  state: "idle" | "recording" | "uploading" | "transcribed" | "error";
+  uploadedBytes: number;
+};
+
 type ChatApiResponse = {
   answer?: string;
   model?: string;
@@ -43,6 +53,15 @@ type ChatStreamEvent =
   | { type: "meta"; model?: string }
   | { type: "delta"; text?: string }
   | { type: "done" };
+
+type SttApiResponse = {
+  bytes?: number;
+  chunkIndex?: number;
+  error?: string;
+  mimeType?: string;
+  model?: string;
+  text?: string;
+};
 
 export type VoicePipelineState =
   | "idle"
@@ -70,6 +89,21 @@ function getSpeechSynthesis() {
   }
 
   return window.speechSynthesis ?? null;
+}
+
+function getSupportedAudioMimeType() {
+  if (typeof MediaRecorder === "undefined") {
+    return "";
+  }
+
+  const candidates = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4",
+    "audio/mpeg",
+  ];
+
+  return candidates.find((mimeType) => MediaRecorder.isTypeSupported(mimeType)) ?? "";
 }
 
 function extractSpeakableSegments(text: string) {
@@ -119,6 +153,17 @@ export function useVoicePipeline() {
   const [lastAnswer, setLastAnswer] = useState<string | null>(null);
   const [streamingAnswer, setStreamingAnswer] = useState<string | null>(null);
   const [model, setModel] = useState<string | null>(null);
+  const [backendSttStatus, setBackendSttStatus] = useState<BackendSttStatus>({
+    chunkCount: 0,
+    errorMessage: null,
+    lastChunkBytes: 0,
+    lastTranscript: null,
+    mimeType: null,
+    state: "idle",
+    uploadedBytes: 0,
+  });
+  const backendTranscriptInFlightRef = useRef(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const pendingSpeechCountRef = useRef(0);
   const shouldListenRef = useRef(false);
@@ -136,9 +181,16 @@ export function useVoicePipeline() {
     shouldListenRef.current = false;
     recognitionRef.current?.stop();
     recognitionRef.current = null;
+    mediaRecorderRef.current?.stop();
+    mediaRecorderRef.current = null;
+    backendTranscriptInFlightRef.current = false;
     stopSpeaking();
     setInterimTranscript(null);
     setStreamingAnswer(null);
+    setBackendSttStatus((current) => ({
+      ...current,
+      state: current.state === "idle" ? "idle" : "idle",
+    }));
     setState("idle");
   }, [stopSpeaking]);
 
@@ -332,20 +384,220 @@ export function useVoicePipeline() {
     [readStreamingAnswer, stopSpeaking],
   );
 
+  const handleFinalTranscript = useCallback(
+    async ({
+      clientConfig,
+      onAnswer,
+      onFinalTranscript,
+      text,
+    }: {
+      clientConfig: ClientConfig;
+      onAnswer?: (question: string, answer: string) => void;
+      onFinalTranscript?: (text: string) => Promise<string | undefined>;
+      text: string;
+    }) => {
+      const trimmedText = text.trim();
+
+      if (!trimmedText || backendTranscriptInFlightRef.current) {
+        return;
+      }
+
+      backendTranscriptInFlightRef.current = true;
+      setInterimTranscript(null);
+      setLastTranscript(trimmedText);
+      stopSpeaking();
+
+      try {
+        const visualContext = await onFinalTranscript?.(trimmedText);
+        await ask({
+          clientConfig,
+          message: trimmedText,
+          onAnswer: (answer) => onAnswer?.(trimmedText, answer),
+          visualContext,
+        });
+      } finally {
+        backendTranscriptInFlightRef.current = false;
+      }
+    },
+    [ask, stopSpeaking],
+  );
+
+  const uploadAudioChunk = useCallback(
+    async ({
+      blob,
+      chunkIndex,
+      clientConfig,
+      onAnswer,
+      onFinalTranscript,
+    }: {
+      blob: Blob;
+      chunkIndex: number;
+      clientConfig: ClientConfig;
+      onAnswer?: (question: string, answer: string) => void;
+      onFinalTranscript?: (text: string) => Promise<string | undefined>;
+    }) => {
+      setBackendSttStatus((current) => ({
+        ...current,
+        chunkCount: chunkIndex,
+        errorMessage: null,
+        lastChunkBytes: blob.size,
+        mimeType: blob.type || current.mimeType,
+        state: "uploading",
+        uploadedBytes: current.uploadedBytes + blob.size,
+      }));
+
+      const formData = new FormData();
+      formData.set("audio", blob, `audai-chunk-${chunkIndex}.webm`);
+      formData.set("chunkIndex", String(chunkIndex));
+      formData.set("openai", JSON.stringify(clientConfig));
+
+      try {
+        const response = await fetch("/api/stt", {
+          method: "POST",
+          body: formData,
+        });
+        const payload = (await response.json()) as SttApiResponse;
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? "后端 STT 转写失败。");
+        }
+
+        const text = payload.text?.trim() ?? "";
+
+        setBackendSttStatus((current) => ({
+          ...current,
+          errorMessage: null,
+          lastTranscript: text || current.lastTranscript,
+          mimeType: payload.mimeType ?? current.mimeType,
+          state: text ? "transcribed" : "recording",
+        }));
+
+        if (text) {
+          void handleFinalTranscript({
+            clientConfig,
+            onAnswer,
+            onFinalTranscript,
+            text,
+          });
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "后端 STT 转写失败。";
+        setBackendSttStatus((current) => ({
+          ...current,
+          errorMessage: message,
+          state: "error",
+        }));
+      }
+    },
+    [handleFinalTranscript],
+  );
+
+  const startBackendStt = useCallback(
+    ({
+      clientConfig,
+      onAnswer,
+      onFinalTranscript,
+      stream,
+    }: {
+      clientConfig: ClientConfig;
+      onAnswer?: (question: string, answer: string) => void;
+      onFinalTranscript?: (text: string) => Promise<string | undefined>;
+      stream: MediaStream;
+    }) => {
+      if (typeof MediaRecorder === "undefined") {
+        setBackendSttStatus((current) => ({
+          ...current,
+          errorMessage: "当前浏览器不支持 MediaRecorder，无法证明音频上传到后端 STT。",
+          state: "error",
+        }));
+        return false;
+      }
+
+      const audioTrack = stream.getAudioTracks()[0];
+
+      if (!audioTrack) {
+        setBackendSttStatus((current) => ({
+          ...current,
+          errorMessage: "未找到麦克风音轨，无法上传到后端 STT。",
+          state: "error",
+        }));
+        return false;
+      }
+
+      mediaRecorderRef.current?.stop();
+
+      const mimeType = getSupportedAudioMimeType();
+      const recorder = new MediaRecorder(
+        new MediaStream([audioTrack]),
+        mimeType ? { mimeType } : undefined,
+      );
+      let chunkIndex = 0;
+
+      recorder.ondataavailable = (event) => {
+        if (!shouldListenRef.current || event.data.size < 1024) {
+          return;
+        }
+
+        chunkIndex += 1;
+        void uploadAudioChunk({
+          blob: event.data,
+          chunkIndex,
+          clientConfig,
+          onAnswer,
+          onFinalTranscript,
+        });
+      };
+
+      recorder.onerror = () => {
+        setBackendSttStatus((current) => ({
+          ...current,
+          errorMessage: "MediaRecorder 录音失败，无法继续上传 STT 分片。",
+          state: "error",
+        }));
+      };
+
+      recorder.onstart = () => {
+        setBackendSttStatus({
+          chunkCount: 0,
+          errorMessage: null,
+          lastChunkBytes: 0,
+          lastTranscript: null,
+          mimeType: recorder.mimeType || mimeType || null,
+          state: "recording",
+          uploadedBytes: 0,
+        });
+      };
+
+      recorder.onstop = () => {
+        setBackendSttStatus((current) => ({
+          ...current,
+          state: "idle",
+        }));
+      };
+
+      mediaRecorderRef.current = recorder;
+      recorder.start(2_500);
+      return true;
+    },
+    [uploadAudioChunk],
+  );
+
   const start = useCallback(
     ({
       clientConfig,
       onAnswer,
       onFinalTranscript,
+      stream,
     }: {
       clientConfig: ClientConfig;
       onAnswer?: (question: string, answer: string) => void;
       onFinalTranscript?: (text: string) => Promise<string | undefined>;
+      stream?: MediaStream | null;
     }) => {
       const SpeechRecognition = getSpeechRecognitionConstructor();
 
-      if (!SpeechRecognition) {
-        setErrorMessage("当前浏览器不支持 SpeechRecognition，请使用 Chrome，并通过 localhost 或 HTTPS 访问。");
+      if (!SpeechRecognition && !stream) {
+        setErrorMessage("当前浏览器不支持 SpeechRecognition，且没有可上传后端 STT 的麦克风流。");
         setState("error");
         return false;
       }
@@ -353,6 +605,24 @@ export function useVoicePipeline() {
       stopSpeaking();
       shouldListenRef.current = true;
       setErrorMessage(null);
+      setBackendSttStatus((current) => ({
+        ...current,
+        errorMessage: null,
+      }));
+
+      if (stream) {
+        startBackendStt({
+          clientConfig,
+          onAnswer,
+          onFinalTranscript,
+          stream,
+        });
+      }
+
+      if (!SpeechRecognition) {
+        setState("listening");
+        return true;
+      }
 
       const recognition = new SpeechRecognition();
       recognition.lang = "zh-CN";
@@ -387,17 +657,12 @@ export function useVoicePipeline() {
         }
 
         setInterimTranscript(null);
-        setLastTranscript(trimmedText);
-        stopSpeaking();
-        void (async () => {
-          const visualContext = await onFinalTranscript?.(trimmedText);
-          await ask({
-            clientConfig,
-            message: trimmedText,
-            onAnswer: (answer) => onAnswer?.(trimmedText, answer),
-            visualContext,
-          });
-        })();
+        void handleFinalTranscript({
+          clientConfig,
+          onAnswer,
+          onFinalTranscript,
+          text: trimmedText,
+        });
       };
 
       recognition.onerror = (event) => {
@@ -420,13 +685,14 @@ export function useVoicePipeline() {
       setState("listening");
       return true;
     },
-    [ask, stopSpeaking],
+    [handleFinalTranscript, startBackendStt, stopSpeaking],
   );
 
   useEffect(() => stop, [stop]);
 
   return {
     errorMessage,
+    backendSttStatus,
     interimTranscript,
     lastAnswer,
     lastTranscript,

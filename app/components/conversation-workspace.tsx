@@ -361,6 +361,12 @@ export function ConversationWorkspace({
     : realtimeConversationTranscripts.find(
         (transcript) => transcript.role === "assistant",
       )?.text ?? null;
+  const backendSttStatusText = [
+    `后端 STT：${voicePipeline.backendSttStatus.state}`,
+    `${voicePipeline.backendSttStatus.chunkCount} 片`,
+    `${formatBytes(voicePipeline.backendSttStatus.uploadedBytes)}`,
+    voicePipeline.backendSttStatus.mimeType ?? "待录音",
+  ].join(" · ");
   const liveTranscriptStatus = isPipelineMode
     ? voicePipeline.interimTranscript
       ? "识别中"
@@ -857,7 +863,7 @@ export function ConversationWorkspace({
               </strong>
               <span>
                 {stream
-                  ? "摄像头和麦克风在本地采集；连接语音后麦克风会通过 WebRTC 发送到 Realtime。"
+                  ? "摄像头和麦克风已采集；语音流水线会上传音频分片到后端 STT，Realtime 会通过 WebRTC 发送麦克风。"
                   : "点击开始后浏览器会请求摄像头和麦克风权限。"}
               </span>
               <div className="audio-meter" aria-label="麦克风输入电平">
@@ -896,6 +902,7 @@ export function ConversationWorkspace({
 
                         return analyzeAndInjectVisionContext(text, "voice");
                       },
+                      stream,
                     })
                   }
                   disabled={!stream || !hasAudio || sessionState === "connecting"}
@@ -999,6 +1006,12 @@ export function ConversationWorkspace({
                     ? "点击“开始语音”后，这里会显示浏览器 STT 的实时识别文本。"
                     : "连接 Realtime 后，这里会显示服务端返回的用户语音转写。")}
               </p>
+              {isPipelineMode ? (
+                <small>
+                  {voicePipeline.backendSttStatus.errorMessage ??
+                    backendSttStatusText}
+                </small>
+              ) : null}
             </div>
             <div className="live-transcript-item live-transcript-answer">
               <span>AI 回复</span>
