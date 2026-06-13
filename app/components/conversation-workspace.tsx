@@ -367,8 +367,11 @@ export function ConversationWorkspace({
   const backendSttStatusText = [
     `STT：${clientConfig.sttProvider}`,
     voicePipeline.backendSttStatus.state,
+    `RMS ${voicePipeline.backendSttStatus.lastRms.toFixed(3)}`,
+    `${Math.round(voicePipeline.backendSttStatus.recordingMs / 100) / 10}s`,
     `${voicePipeline.backendSttStatus.chunkCount} 片`,
     `${formatBytes(voicePipeline.backendSttStatus.uploadedBytes)}`,
+    voicePipeline.backendSttStatus.lastTurnId ?? "待 turn",
     voicePipeline.backendSttStatus.mimeType ?? "待录音",
   ].join(" · ");
   const liveTranscriptStatus = isPipelineMode

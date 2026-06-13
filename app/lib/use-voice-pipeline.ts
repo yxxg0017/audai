@@ -7,8 +7,11 @@ type BackendSttStatus = {
   chunkCount: number;
   errorMessage: string | null;
   lastChunkBytes: number;
+  lastRms: number;
   lastTranscript: string | null;
+  lastTurnId: string | null;
   mimeType: string | null;
+  recordingMs: number;
   state: "idle" | "recording" | "uploading" | "transcribed" | "error";
   uploadedBytes: number;
 };
@@ -146,20 +149,28 @@ export function useVoicePipeline() {
     chunkCount: 0,
     errorMessage: null,
     lastChunkBytes: 0,
+    lastRms: 0,
     lastTranscript: null,
+    lastTurnId: null,
     mimeType: null,
+    recordingMs: 0,
     state: "idle",
     uploadedBytes: 0,
   });
   const abortControllerRef = useRef<AbortController | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const audioPlaybackCountRef = useRef(0);
   const chunksRef = useRef<Blob[]>([]);
   const currentClientConfigRef = useRef<ClientConfig | null>(null);
   const currentSpeechStartedAtRef = useRef(0);
   const currentTurnIdRef = useRef<string | null>(null);
   const interruptStartedAtRef = useRef<number | null>(null);
   const isRecordingRef = useRef(false);
+  const isTurnInFlightRef = useRef(false);
+  const lastAnswerRef = useRef("");
+  const lastMeterUpdateAtRef = useRef(0);
+  const lastTranscriptRef = useRef("");
   const loudStartedAtRef = useRef<number | null>(null);
   const localAudioRefsRef = useRef<HTMLAudioElement[]>([]);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -168,6 +179,12 @@ export function useVoicePipeline() {
   const shouldListenRef = useRef(false);
   const silenceStartedAtRef = useRef<number | null>(null);
   const speechTurnCountRef = useRef(0);
+  const stateRef = useRef<VoicePipelineState>("idle");
+
+  const setPipelineState = useCallback((nextState: VoicePipelineState) => {
+    stateRef.current = nextState;
+    setState(nextState);
+  }, []);
 
   const stopSpeaking = useCallback(() => {
     abortControllerRef.current?.abort();
@@ -177,11 +194,15 @@ export function useVoicePipeline() {
       audio.src = "";
     });
     localAudioRefsRef.current = [];
-  }, []);
+    if (shouldListenRef.current && stateRef.current === "speaking") {
+      setPipelineState("listening");
+    }
+  }, [setPipelineState]);
 
   const playAudioBlob = useCallback(async (blob: Blob) => {
     const audioUrl = URL.createObjectURL(blob);
     const audio = new Audio(audioUrl);
+    audioPlaybackCountRef.current += 1;
     localAudioRefsRef.current.push(audio);
 
     try {
@@ -195,8 +216,16 @@ export function useVoicePipeline() {
       localAudioRefsRef.current = localAudioRefsRef.current.filter(
         (item) => item !== audio,
       );
+      audioPlaybackCountRef.current = Math.max(0, audioPlaybackCountRef.current - 1);
+      if (
+        audioPlaybackCountRef.current === 0 &&
+        shouldListenRef.current &&
+        stateRef.current === "speaking"
+      ) {
+        setPipelineState("listening");
+      }
     }
-  }, []);
+  }, [setPipelineState]);
 
   const enqueueBrowserSpeech = useCallback(async (text: string) => {
     const speechSynthesis = window.speechSynthesis;
@@ -223,7 +252,7 @@ export function useVoicePipeline() {
         return;
       }
 
-      setState("speaking");
+      setPipelineState("speaking");
 
       if (clientConfig.ttsProvider === "local") {
         const response = await fetch("/api/tts", {
@@ -246,7 +275,7 @@ export function useVoicePipeline() {
 
       await enqueueBrowserSpeech(text);
     },
-    [enqueueBrowserSpeech, playAudioBlob],
+    [enqueueBrowserSpeech, playAudioBlob, setPipelineState],
   );
 
   const readStreamingAnswer = useCallback(
@@ -265,6 +294,7 @@ export function useVoicePipeline() {
         }
 
         setModel(payload.model ?? null);
+        lastAnswerRef.current = payload.answer;
         setLastAnswer(payload.answer);
         onAnswer?.(payload.answer);
         await speakText(payload.answer);
@@ -289,6 +319,7 @@ export function useVoicePipeline() {
 
         answer += event.text;
         speechBuffer += event.text;
+        lastAnswerRef.current = answer;
         setLastAnswer(answer);
         setStreamingAnswer(answer);
 
@@ -343,6 +374,7 @@ export function useVoicePipeline() {
       }
 
       setStreamingAnswer(null);
+      lastAnswerRef.current = finalAnswer;
       setLastAnswer(finalAnswer);
       onAnswer?.(finalAnswer);
     },
@@ -369,10 +401,12 @@ export function useVoicePipeline() {
         return;
       }
 
-      setState("thinking");
+      setPipelineState("thinking");
       setErrorMessage(null);
       setInterimTranscript(null);
       setStreamingAnswer(null);
+      lastTranscriptRef.current = trimmedMessage;
+      lastAnswerRef.current = "";
       setLastTranscript(trimmedMessage);
       stopSpeaking();
 
@@ -393,16 +427,16 @@ export function useVoicePipeline() {
         }
 
         await readStreamingAnswer({ response, onAnswer });
-        setState(shouldListenRef.current ? "listening" : "idle");
+        setPipelineState(shouldListenRef.current ? "listening" : "idle");
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "语音流水线文本回复失败。";
         setErrorMessage(message);
         setStreamingAnswer(null);
-        setState("error");
+        setPipelineState("error");
       }
     },
-    [readStreamingAnswer, stopSpeaking],
+    [readStreamingAnswer, setPipelineState, stopSpeaking],
   );
 
   const postToolResult = useCallback(
@@ -440,6 +474,7 @@ export function useVoicePipeline() {
     }) => {
       if (event === "stt.final") {
         const text = data.text?.trim() ?? "";
+        lastTranscriptRef.current = text;
         setLastTranscript(text);
         setInterimTranscript(null);
         setBackendSttStatus((current) => ({
@@ -470,36 +505,39 @@ export function useVoicePipeline() {
 
       if (event === "llm.delta") {
         const text = data.text ?? "";
-        setState("thinking");
-        setLastAnswer((current) => `${current ?? ""}${text}`);
-        setStreamingAnswer((current) => `${current ?? ""}${text}`);
+        setPipelineState("thinking");
+        lastAnswerRef.current += text;
+        setLastAnswer(lastAnswerRef.current);
+        setStreamingAnswer(lastAnswerRef.current);
         return;
       }
 
       if (event === "tts.start") {
-        setState("speaking");
+        setPipelineState("speaking");
         return;
       }
 
       if (event === "tts.audio" && data.audioBase64) {
         const blob = decodeBase64Audio(data.audioBase64, data.mimeType ?? "audio/aiff");
-        await playAudioBlob(blob);
+        void playAudioBlob(blob);
         return;
       }
 
       if (event === "tts.stop") {
-        setState(shouldListenRef.current ? "listening" : "idle");
+        if (audioPlaybackCountRef.current === 0) {
+          setPipelineState(shouldListenRef.current ? "listening" : "idle");
+        }
         return;
       }
 
       if (event === "done") {
-        const question = lastTranscript ?? "";
-        const answer = lastAnswer ?? "";
+        const question = lastTranscriptRef.current.trim();
+        const answer = lastAnswerRef.current.trim();
         setStreamingAnswer(null);
         if (question && answer) {
           onAnswer?.(question, answer);
         }
-        setState(shouldListenRef.current ? "listening" : "idle");
+        setPipelineState(shouldListenRef.current ? "listening" : "idle");
         return;
       }
 
@@ -507,7 +545,7 @@ export function useVoicePipeline() {
         throw new Error(data.message ?? "本地语音服务返回错误。");
       }
     },
-    [lastAnswer, lastTranscript, playAudioBlob, postToolResult],
+    [playAudioBlob, postToolResult, setPipelineState],
   );
 
   const sendVoiceTurn = useCallback(
@@ -525,16 +563,20 @@ export function useVoicePipeline() {
       const turnId = `turn-${Date.now()}-${speechTurnCountRef.current + 1}`;
       currentTurnIdRef.current = turnId;
       speechTurnCountRef.current += 1;
+      isTurnInFlightRef.current = true;
       abortControllerRef.current?.abort();
       abortControllerRef.current = new AbortController();
-      setState("transcribing");
+      setPipelineState("transcribing");
       setErrorMessage(null);
+      lastAnswerRef.current = "";
+      lastTranscriptRef.current = "";
       setLastAnswer(null);
       setStreamingAnswer(null);
       setBackendSttStatus((current) => ({
         ...current,
         chunkCount: speechTurnCountRef.current,
         lastChunkBytes: blob.size,
+        lastTurnId: turnId,
         mimeType: blob.type || current.mimeType,
         state: "uploading",
         uploadedBytes: current.uploadedBytes + blob.size,
@@ -593,6 +635,7 @@ export function useVoicePipeline() {
         }
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") {
+          setPipelineState(shouldListenRef.current ? "listening" : "idle");
           return;
         }
         const message =
@@ -603,10 +646,20 @@ export function useVoicePipeline() {
           errorMessage: message,
           state: "error",
         }));
-        setState("error");
+        setPipelineState("error");
+      } finally {
+        isTurnInFlightRef.current = false;
+        abortControllerRef.current = null;
+        if (
+          shouldListenRef.current &&
+          stateRef.current !== "error" &&
+          audioPlaybackCountRef.current === 0
+        ) {
+          setPipelineState("listening");
+        }
       }
     },
-    [handleVoiceEvent],
+    [handleVoiceEvent, setPipelineState],
   );
 
   const stopRecorder = useCallback(() => {
@@ -630,7 +683,7 @@ export function useVoicePipeline() {
     }) => {
       if (typeof MediaRecorder === "undefined") {
         setErrorMessage("当前浏览器不支持 MediaRecorder，无法录制语音。");
-        setState("error");
+        setPipelineState("error");
         return;
       }
 
@@ -638,10 +691,11 @@ export function useVoicePipeline() {
       chunksRef.current = [];
       isRecordingRef.current = true;
       currentSpeechStartedAtRef.current = performance.now();
-      setState("user_speaking");
+      setPipelineState("user_speaking");
       setBackendSttStatus((current) => ({
         ...current,
         errorMessage: null,
+        recordingMs: 0,
         state: "recording",
       }));
 
@@ -663,8 +717,12 @@ export function useVoicePipeline() {
           type: recorder.mimeType || mimeType || "audio/webm",
         });
         chunksRef.current = [];
+        setBackendSttStatus((current) => ({
+          ...current,
+          recordingMs: Math.round(speechDuration),
+        }));
         if (blob.size < 1024 || speechDuration < minSpeechMs || !shouldListenRef.current) {
-          setState(shouldListenRef.current ? "listening" : "idle");
+          setPipelineState(shouldListenRef.current ? "listening" : "idle");
           return;
         }
         void sendVoiceTurn({
@@ -677,12 +735,12 @@ export function useVoicePipeline() {
       recorder.onerror = () => {
         isRecordingRef.current = false;
         setErrorMessage("MediaRecorder 录音失败。");
-        setState("error");
+        setPipelineState("error");
       };
       mediaRecorderRef.current = recorder;
       recorder.start();
     },
-    [sendVoiceTurn, stopSpeaking],
+    [sendVoiceTurn, setPipelineState, stopSpeaking],
   );
 
   const startVadLoop = useCallback(
@@ -700,15 +758,15 @@ export function useVoicePipeline() {
       const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
       if (!AudioContextConstructor) {
         setErrorMessage("当前浏览器不支持 Web Audio VAD。");
-        setState("error");
+        setPipelineState("error");
         return;
       }
 
       const audioContext = new AudioContextConstructor();
       const source = audioContext.createMediaStreamSource(stream);
       const analyser = audioContext.createAnalyser();
-      const samples = new Uint8Array(analyser.fftSize);
       analyser.fftSize = 512;
+      const samples = new Uint8Array(analyser.fftSize);
       source.connect(analyser);
       audioContextRef.current = audioContext;
       analyserRef.current = analyser;
@@ -730,8 +788,20 @@ export function useVoicePipeline() {
 
         const rms = getRms();
         const isLoud = rms >= vadThreshold;
+        const currentState = stateRef.current;
 
-        if (state === "speaking" && isLoud) {
+        if (now - lastMeterUpdateAtRef.current > 150) {
+          lastMeterUpdateAtRef.current = now;
+          setBackendSttStatus((current) => ({
+            ...current,
+            lastRms: rms,
+            recordingMs: isRecordingRef.current
+              ? Math.round(now - currentSpeechStartedAtRef.current)
+              : current.recordingMs,
+          }));
+        }
+
+        if (currentState === "speaking" && isLoud) {
           interruptStartedAtRef.current ??= now;
           if (now - interruptStartedAtRef.current >= interruptStartMs) {
             stopSpeaking();
@@ -740,7 +810,11 @@ export function useVoicePipeline() {
           interruptStartedAtRef.current = null;
         }
 
-        if (!isRecordingRef.current && isLoud) {
+        const canStartRecording =
+          !isTurnInFlightRef.current &&
+          (stateRef.current === "listening" || stateRef.current === "speaking");
+
+        if (!isRecordingRef.current && canStartRecording && isLoud) {
           loudStartedAtRef.current ??= now;
           if (now - loudStartedAtRef.current >= speechStartMs) {
             startRecorder({
@@ -776,7 +850,7 @@ export function useVoicePipeline() {
 
       rafRef.current = requestAnimationFrame(tick);
     },
-    [startRecorder, state, stopRecorder, stopSpeaking],
+    [setPipelineState, startRecorder, stopRecorder, stopSpeaking],
   );
 
   const start = useCallback(
@@ -794,22 +868,33 @@ export function useVoicePipeline() {
     }) => {
       if (!stream?.getAudioTracks().length) {
         setErrorMessage("未找到麦克风流，无法启动语音会话。");
-        setState("error");
+        setPipelineState("error");
         return false;
       }
 
+      if (shouldListenRef.current && rafRef.current !== null) {
+        currentClientConfigRef.current = clientConfig;
+        return true;
+      }
+
       currentClientConfigRef.current = clientConfig;
+      sessionIdRef.current ??= `session-${crypto.randomUUID()}`;
       shouldListenRef.current = true;
       setErrorMessage(null);
       setInterimTranscript(null);
       setStreamingAnswer(null);
-      setState("listening");
+      lastAnswerRef.current = "";
+      lastTranscriptRef.current = "";
+      setPipelineState("listening");
       setBackendSttStatus({
         chunkCount: 0,
         errorMessage: null,
         lastChunkBytes: 0,
+        lastRms: 0,
         lastTranscript: null,
+        lastTurnId: null,
         mimeType: null,
+        recordingMs: 0,
         state: "idle",
         uploadedBytes: 0,
       });
@@ -821,11 +906,12 @@ export function useVoicePipeline() {
       });
       return true;
     },
-    [startVadLoop],
+    [setPipelineState, startVadLoop],
   );
 
   const stop = useCallback(() => {
     shouldListenRef.current = false;
+    isTurnInFlightRef.current = false;
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
     stopSpeaking();
@@ -843,8 +929,8 @@ export function useVoicePipeline() {
       ...current,
       state: "idle",
     }));
-    setState("idle");
-  }, [stopRecorder, stopSpeaking]);
+    setPipelineState("idle");
+  }, [setPipelineState, stopRecorder, stopSpeaking]);
 
   useEffect(() => stop, [stop]);
 
