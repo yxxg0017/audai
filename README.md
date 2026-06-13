@@ -126,7 +126,7 @@ LOCAL_TTS_VOICE=
 - 本地 STT：`POST /stt`，接收 `multipart/form-data` 的 `audio` 文件字段，返回 JSON：`{"text":"识别文本"}`。
 - 本地 TTS：`POST /tts`，接收 JSON：`{"text":"待合成文本","voice":"可选声音"}`，直接返回 `audio/wav`、`audio/mpeg` 等音频；也可返回 JSON：`{"audioBase64":"...","mimeType":"audio/wav"}`。
 
-仓库提供了一个本机开发用语音服务，STT 使用 whisper.cpp，TTS 使用 macOS `say`。推荐使用 Node 编排服务：
+仓库提供了一个本机开发用语音服务，STT 使用 whisper.cpp，TTS 默认使用 macOS `say`，也可以切换到 Piper 本地声线。推荐使用 Node 编排服务：
 
 ```bash
 bash scripts/setup_local_voice.sh
@@ -153,6 +153,17 @@ LOCAL_STT_AUDIO_FILTER="highpass=f=80,lowpass=f=8000,loudnorm"
 
 `LOCAL_STT_PROMPT` 用于给 Whisper 补充简体中文、视觉对话和常见领域词；`LOCAL_WHISPER_BEAM_SIZE` 与 `LOCAL_WHISPER_BEST_OF` 越大通常越稳，但会增加延迟；`LOCAL_STT_AUDIO_FILTER` 会在转写前通过 ffmpeg 做轻量高通、低通和响度标准化。前端语音流水线会保留约 500ms 预录缓冲，并把静音结束阈值调到约 1 秒，减少中文开头音节被切掉和短句误识别的问题。
 
+本地 TTS 声线相关环境变量：
+
+```bash
+LOCAL_TTS_ENGINE=say
+LOCAL_TTS_ENGINE=piper
+LOCAL_PIPER_CLI=piper
+LOCAL_PIPER_MODEL_PATH=/path/to/voice.onnx
+```
+
+默认 `say` 作为兜底，适合 macOS 快速演示；如果需要更自然的本地声线，可以安装 Piper 并在设置页选择“Piper 本地声线”，再把“本地 TTS 声音”填写为 `.onnx` 声线模型路径。Piper 仍是离线本地 TTS，不会把文本发到云端。
+
 启动后访问 `http://127.0.0.1:8766/health`，如果返回 `ok: true`，即可在设置中把“本地语音会话地址”设为 `http://127.0.0.1:8766/voice/turn`。
 健康检查会返回 `ffmpeg`、`whisper-cli`、本地模型文件、macOS `say`、当前模型路径、提示词状态、解码参数和音频滤镜；如果 `ok: false`，先根据 `checks` 字段补齐本地环境。
 如果浏览器不是运行在这台 Mac 上，例如用手机或其他局域网设备访问 `http://10.x.x.x:3000`，不要填写 `127.0.0.1`，因为它指向浏览器所在设备本身。此时需要用 `LOCAL_VOICE_HOST=0.0.0.0 npm run voice:local` 启动服务，并把“本地语音会话地址”改为 `http://这台Mac的局域网IP:8766/voice/turn`。
@@ -160,17 +171,17 @@ LOCAL_STT_AUDIO_FILTER="highpass=f=80,lowpass=f=8000,loudnorm"
 本地 Node 服务接口：
 
 - `POST /voice/turn`：接收 `multipart/form-data` 的 `audio`、`config`、`sessionId`、`turnId`，返回 `text/event-stream`。
-- SSE 事件包括 `stt.final`、`tool.call`、`tool.result`、`llm.delta`、`tts.start`、`tts.sentence_start`、`tts.audio`、`tts.stop`、`done`、`error`。
+- SSE 事件包括 `stt.final`、`tool.call`、`tool.result`、`metric`、`llm.delta`、`tts.start`、`tts.sentence_start`、`tts.audio`、`tts.stop`、`done`、`error`。
 - `POST /voice/tool-result`：前端收到视觉 tool 请求后补传当前压缩帧。
 
-当用户通过语音询问“画面里有什么”“我面前是什么”等视觉问题时，本地 Node 服务会先根据关键词映射触发视觉 tool，前端补传当前摄像头画面，服务端完成视觉分析后把摘要作为上下文注入回答。
-前端“实时转写”区域会显示 RMS、录音时长、音频大小、turnId 和最近 STT 文本，用于验证麦克风确实触发了 VAD、录音上传和本地转写。
+当用户通过语音询问“画面里有什么”“我面前是什么”等视觉问题时，本地 Node 服务会先根据关键词映射触发视觉 tool，前端补传当前摄像头压缩帧，服务端把图片直接并入本轮多模态流式回答，避免“先视觉摘要、再文本回答”的两次模型串行调用。
+前端“实时转写”区域会显示 RMS、录音时长、音频大小、turnId、最近 STT 文本，以及 STT、视觉等待、首 token、首音频和总耗时，用于验证麦克风、后端转写、模型流式输出和 TTS 链路是否真实生效。
 
 当前已采用的成本控制策略：
 
 - 视觉分析只上传压缩后的单帧图片，不上传连续视频流。
-- 图片输入使用低细节模式，并限制图片 data URL 大小。
-- 视觉问题默认缓存 60 秒，连续追问优先复用最近视觉摘要。
+- 图片默认压缩到较小宽度和质量，模型侧使用低细节模式，并限制图片 data URL 大小。
+- 视觉问题默认缓存 60 秒，视觉 tool 会优先复用 15 秒内的最近压缩帧。
 - `/api/vision` 按客户端指纹做每小时 20 次限流。
 - `/api/realtime/session` 按客户端指纹做每小时 12 次限流。
 - Realtime 系统提示限制常规回答不超过 3 句话，减少无意义长输出。
