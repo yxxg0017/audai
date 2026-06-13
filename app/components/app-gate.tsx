@@ -33,6 +33,7 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
   const localSttUrlRef = useRef<HTMLInputElement | null>(null);
   const localTtsUrlRef = useRef<HTMLInputElement | null>(null);
   const localTtsVoiceRef = useRef<HTMLInputElement | null>(null);
+  const localVoiceUrlRef = useRef<HTMLInputElement | null>(null);
   const realtimeModelRef = useRef<HTMLInputElement | null>(null);
   const realtimeTranscriptionModelRef = useRef<HTMLInputElement | null>(null);
   const realtimeVoiceRef = useRef<HTMLInputElement | null>(null);
@@ -67,6 +68,10 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
         localTtsVoiceRef.current?.value ??
         detectedConfigRef.current.localTtsVoice ??
         config.localTtsVoice,
+      localVoiceUrl:
+        localVoiceUrlRef.current?.value ??
+        detectedConfigRef.current.localVoiceUrl ??
+        config.localVoiceUrl,
       realtimeModel:
         realtimeModelRef.current?.value ??
         detectedConfigRef.current.realtimeModel ??
@@ -261,6 +266,16 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
                 name="localTtsVoice"
                 placeholder="可选，由本地服务决定"
                 ref={localTtsVoiceRef}
+              />
+            </label>
+            <label>
+              <span>本地语音会话地址</span>
+              <input
+                defaultValue={config.localVoiceUrl}
+                name="localVoiceUrl"
+                placeholder="http://127.0.0.1:8766/voice/turn"
+                ref={localVoiceUrlRef}
+                type="url"
               />
             </label>
             <label>

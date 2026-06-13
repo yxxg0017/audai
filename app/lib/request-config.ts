@@ -11,6 +11,7 @@ type OpenAIRequestConfig = {
   localSttUrl: string;
   localTtsUrl: string;
   localTtsVoice: string;
+  localVoiceUrl: string;
   sttProvider: "browser" | "cloud" | "local";
   ttsProvider: "browser" | "local";
   visionModel: string;
@@ -61,6 +62,10 @@ export function getOpenAIRequestConfig(body: ApiConfigBody) {
       readString(openai.localTtsVoice) ||
       process.env.LOCAL_TTS_VOICE?.trim() ||
       "",
+    localVoiceUrl:
+      readString(openai.localVoiceUrl) ||
+      process.env.LOCAL_VOICE_URL?.trim() ||
+      "http://127.0.0.1:8766/voice/turn",
     sttProvider: readSttProvider(openai.sttProvider),
     ttsProvider: readTtsProvider(openai.ttsProvider),
     visionModel:

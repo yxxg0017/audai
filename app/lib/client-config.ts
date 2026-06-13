@@ -10,6 +10,7 @@ export type ClientConfig = {
   localSttUrl: string;
   localTtsUrl: string;
   localTtsVoice: string;
+  localVoiceUrl: string;
   realtimeModel: string;
   realtimeVoice: string;
   realtimeTranscriptionModel: string;
@@ -26,6 +27,7 @@ export const defaultClientConfig: ClientConfig = {
   localSttUrl: "http://127.0.0.1:8765/stt",
   localTtsUrl: "http://127.0.0.1:8765/tts",
   localTtsVoice: "",
+  localVoiceUrl: "http://127.0.0.1:8766/voice/turn",
   realtimeModel: "gpt-realtime-2",
   realtimeVoice: "marin",
   realtimeTranscriptionModel: "whisper-1",
@@ -60,6 +62,8 @@ export function normalizeClientConfig(config: Partial<ClientConfig>): ClientConf
     localTtsUrl:
       config.localTtsUrl?.trim() || defaultClientConfig.localTtsUrl,
     localTtsVoice: config.localTtsVoice?.trim() ?? "",
+    localVoiceUrl:
+      config.localVoiceUrl?.trim() || defaultClientConfig.localVoiceUrl,
     realtimeModel:
       config.realtimeModel?.trim() || defaultClientConfig.realtimeModel,
     realtimeVoice:

@@ -211,8 +211,10 @@ function getSessionStateFromPipeline(
 ) {
   const stateByPipeline: Partial<Record<VoicePipelineState, SessionState>> = {
     listening: "listening",
+    transcribing: "thinking",
     thinking: "thinking",
     speaking: "speaking",
+    user_speaking: "listening",
     error: "error",
   };
 
@@ -350,7 +352,8 @@ export function ConversationWorkspace({
   );
   const visiblePipelineTranscript =
     voicePipeline.interimTranscript ??
-    voicePipeline.lastTranscript;
+    voicePipeline.lastTranscript ??
+    voicePipeline.backendSttStatus.lastTranscript;
   const visiblePipelineAnswer = voicePipeline.streamingAnswer;
   const realtimeConversationTranscripts = [...transcripts].reverse();
   const liveTranscriptText = isPipelineMode
@@ -406,6 +409,26 @@ export function ConversationWorkspace({
       ]),
     );
   }, []);
+
+  const handleVisualToolCall = useCallback(async () => {
+    if (!videoRef.current || !stream || !hasVideo) {
+      setVisionContextStatus("视觉工具请求画面，但摄像头未就绪。");
+      return undefined;
+    }
+
+    try {
+      const frame = await captureCompressedFrame(videoRef.current);
+      setLatestFrame(frame);
+      setVisionRequestCount((current) => current + 1);
+      setVisionContextStatus("已为视觉工具提供当前画面。");
+      return frame.dataUrl;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "视觉工具抓帧失败。";
+      setVisionContextStatus(message);
+      return undefined;
+    }
+  }, [hasVideo, stream]);
+
 
   const analyzeAndInjectVisionContext = useCallback(
     async (question: string, source: "voice" | "manual") => {
@@ -896,13 +919,7 @@ export function ConversationWorkspace({
                     voicePipeline.start({
                       clientConfig,
                       onAnswer: appendPipelineExchange,
-                      onFinalTranscript: async (text) => {
-                        if (!shouldUseVisionForTranscript(text)) {
-                          return undefined;
-                        }
-
-                        return analyzeAndInjectVisionContext(text, "voice");
-                      },
+                      onVisualToolCall: handleVisualToolCall,
                       stream,
                     })
                   }
