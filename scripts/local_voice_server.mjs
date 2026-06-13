@@ -17,8 +17,8 @@ const whisperCli = process.env.LOCAL_WHISPER_CLI ?? "whisper-cli";
 const sttPrompt =
   process.env.LOCAL_STT_PROMPT ??
   "以下是简体中文语音对话转写，场景是 AI 视觉对话助手。常见词包括：摄像头、麦克风、画面、视觉、上下文、桌面、屏幕、物体、文字、颜色、位置。请输出简体中文。";
-const whisperBeamSize = Number(process.env.LOCAL_WHISPER_BEAM_SIZE ?? "5");
-const whisperBestOf = Number(process.env.LOCAL_WHISPER_BEST_OF ?? "5");
+const whisperBeamSize = readPositiveInteger(process.env.LOCAL_WHISPER_BEAM_SIZE, 5);
+const whisperBestOf = readPositiveInteger(process.env.LOCAL_WHISPER_BEST_OF, 5);
 const sttAudioFilter =
   process.env.LOCAL_STT_AUDIO_FILTER ?? "highpass=f=80,lowpass=f=8000,loudnorm";
 const maxToolWaitMs = 8000;
@@ -76,6 +76,14 @@ const visualTools = [
     prompt: "请判断用户提到的对象是否在画面中，并描述位置。",
   },
 ];
+
+function readPositiveInteger(value, fallback) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return parsed;
+}
 
 function toSimplifiedChinese(text) {
   return text
@@ -188,7 +196,7 @@ async function transcribeAudio(audio) {
   const inputPath = await writeFileFromBlob(audio, ".webm");
   const wavPath = inputPath.replace(/\.webm$/, ".wav");
   try {
-    await runCommand("ffmpeg", [
+    const ffmpegArgs = [
       "-y",
       "-i",
       inputPath,
@@ -198,18 +206,32 @@ async function transcribeAudio(audio) {
       "1",
       "-f",
       "wav",
-      wavPath,
-    ]);
-    const { output } = await runCommand(whisperCli, [
+    ];
+    if (sttAudioFilter.trim()) {
+      ffmpegArgs.push("-af", sttAudioFilter);
+    }
+    ffmpegArgs.push(wavPath);
+    await runCommand("ffmpeg", ffmpegArgs);
+
+    const whisperArgs = [
       "-m",
       modelPath,
       "-f",
       wavPath,
       "-l",
       "zh",
+      "-bs",
+      String(whisperBeamSize),
+      "-bo",
+      String(whisperBestOf),
       "-nt",
       "-np",
-    ]);
+    ];
+    if (sttPrompt.trim()) {
+      whisperArgs.push("--prompt", sttPrompt, "--carry-initial-prompt");
+    }
+
+    const { output } = await runCommand(whisperCli, whisperArgs);
     return toSimplifiedChinese(output);
   } finally {
     void rm(inputPath, { force: true });
