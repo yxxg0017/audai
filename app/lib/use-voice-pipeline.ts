@@ -105,6 +105,47 @@ function toToolResultUrl(localVoiceUrl: string) {
   return localVoiceUrl.replace(/\/voice\/turn\/?$/, "/voice/tool-result");
 }
 
+function toHealthUrl(localVoiceUrl: string) {
+  try {
+    const url = new URL(localVoiceUrl);
+    url.pathname = "/health";
+    url.search = "";
+    return url.toString();
+  } catch {
+    return localVoiceUrl.replace(/\/voice\/turn\/?$/, "/health");
+  }
+}
+
+function describeLocalVoiceFetchError(error: unknown, localVoiceUrl: string) {
+  const rawMessage = error instanceof Error ? error.message : "";
+  const isFetchFailure =
+    error instanceof TypeError || rawMessage.toLowerCase().includes("failed to fetch");
+
+  if (!isFetchFailure) {
+    return rawMessage || "本地语音会话失败。";
+  }
+
+  const hints = [
+    `无法连接本地语音服务：${localVoiceUrl}`,
+    "请确认已在终端运行 npm run voice:local，并且 /health 可以访问。",
+  ];
+
+  try {
+    const url = new URL(localVoiceUrl);
+    if (url.hostname === "127.0.0.1" || url.hostname === "localhost") {
+      hints.push("如果你在手机或其他局域网设备上打开页面，127.0.0.1 指的是那台设备本身；请把本地语音会话地址改为这台 Mac 的局域网 IP，并用 LOCAL_VOICE_HOST=0.0.0.0 npm run voice:local 启动。");
+    }
+
+    if (window.location.protocol === "https:" && url.protocol === "http:") {
+      hints.push("当前页面是 HTTPS，但本地语音服务是 HTTP，浏览器可能拦截混合内容；请改用 localhost HTTP 测试，或给本地服务配置 HTTPS。");
+    }
+  } catch {
+    hints.push("本地语音会话地址格式不正确，请在设置中检查。");
+  }
+
+  return hints.join(" ");
+}
+
 function parseSseBlock(block: string) {
   let event = "message";
   const dataLines: string[] = [];
@@ -638,8 +679,7 @@ export function useVoicePipeline() {
           setPipelineState(shouldListenRef.current ? "listening" : "idle");
           return;
         }
-        const message =
-          error instanceof Error ? error.message : "本地语音会话失败。";
+        const message = describeLocalVoiceFetchError(error, clientConfig.localVoiceUrl);
         setErrorMessage(message);
         setBackendSttStatus((current) => ({
           ...current,
@@ -660,6 +700,54 @@ export function useVoicePipeline() {
       }
     },
     [handleVoiceEvent, setPipelineState],
+  );
+
+  const checkLocalVoiceService = useCallback(
+    async (clientConfig: ClientConfig) => {
+      try {
+        const response = await fetch(toHealthUrl(clientConfig.localVoiceUrl), {
+          cache: "no-store",
+        });
+
+        if (!response.ok) {
+          throw new Error(`本地语音服务健康检查失败：HTTP ${response.status}`);
+        }
+
+        const payload = (await response.json().catch(() => null)) as
+          | { checks?: Record<string, boolean>; ok?: boolean }
+          | null;
+
+        if (payload && payload.ok === false) {
+          const failedChecks = Object.entries(payload.checks ?? {})
+            .filter(([, ok]) => !ok)
+            .map(([name]) => name)
+            .join("、");
+          throw new Error(
+            failedChecks
+              ? `本地语音服务未就绪，失败检查：${failedChecks}。`
+              : "本地语音服务未就绪。",
+          );
+        }
+      } catch (error) {
+        const message = describeLocalVoiceFetchError(error, clientConfig.localVoiceUrl);
+        setErrorMessage(message);
+        setBackendSttStatus((current) => ({
+          ...current,
+          errorMessage: message,
+          state: "error",
+        }));
+        setPipelineState("error");
+        shouldListenRef.current = false;
+        if (rafRef.current !== null) {
+          cancelAnimationFrame(rafRef.current);
+          rafRef.current = null;
+        }
+        void audioContextRef.current?.close();
+        audioContextRef.current = null;
+        analyserRef.current = null;
+      }
+    },
+    [setPipelineState],
   );
 
   const stopRecorder = useCallback(() => {
@@ -904,9 +992,10 @@ export function useVoicePipeline() {
         onVisualToolCall,
         stream,
       });
+      void checkLocalVoiceService(clientConfig);
       return true;
     },
-    [setPipelineState, startVadLoop],
+    [checkLocalVoiceService, setPipelineState, startVadLoop],
   );
 
   const stop = useCallback(() => {

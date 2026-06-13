@@ -135,6 +135,7 @@ npm run voice:local
 
 启动后访问 `http://127.0.0.1:8766/health`，如果返回 `ok: true`，即可在设置中把“本地语音会话地址”设为 `http://127.0.0.1:8766/voice/turn`。
 健康检查会返回 `ffmpeg`、`whisper-cli`、本地模型文件和 macOS `say` 的可用性；如果 `ok: false`，先根据 `checks` 字段补齐本地环境。
+如果浏览器不是运行在这台 Mac 上，例如用手机或其他局域网设备访问 `http://10.x.x.x:3000`，不要填写 `127.0.0.1`，因为它指向浏览器所在设备本身。此时需要用 `LOCAL_VOICE_HOST=0.0.0.0 npm run voice:local` 启动服务，并把“本地语音会话地址”改为 `http://这台Mac的局域网IP:8766/voice/turn`。
 
 本地 Node 服务接口：
 
