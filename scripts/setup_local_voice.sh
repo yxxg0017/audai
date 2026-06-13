@@ -23,5 +23,8 @@ cat <<EOF
 Local voice environment is ready.
 
 Start the service with:
+  LOCAL_STT_MODEL_PATH=$MODEL_PATH npm run voice:local
+
+The legacy Flask service is still available with:
   LOCAL_STT_MODEL_PATH=$MODEL_PATH "$VENV_DIR/bin/python" scripts/local_voice_service.py
 EOF

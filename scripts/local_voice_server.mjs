@@ -2,7 +2,8 @@
 import { createServer } from "node:http";
 import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -82,6 +83,50 @@ function runCommand(command, args) {
   });
 }
 
+async function canReadFile(filePath) {
+  try {
+    await access(filePath, constants.R_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function canRunCommand(command, args) {
+  try {
+    await runCommand(command, args);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readHealthStatus() {
+  const [modelReady, ffmpegReady, whisperReady, sayReady] = await Promise.all([
+    canReadFile(modelPath),
+    canRunCommand("ffmpeg", ["-version"]),
+    canRunCommand(whisperCli, ["--help"]),
+    canRunCommand("say", ["-v", "?"]),
+  ]);
+
+  const checks = {
+    ffmpeg: ffmpegReady,
+    model: modelReady,
+    say: sayReady,
+    whisper: whisperReady,
+  };
+
+  return {
+    checks,
+    host,
+    modelPath,
+    ok: Object.values(checks).every(Boolean),
+    port,
+    service: "audai-local-voice-node",
+    whisperCli,
+  };
+}
+
 async function writeFileFromBlob(blob, suffix) {
   const dir = join(tmpdir(), "audai-local-voice");
   await mkdir(dir, { recursive: true });
@@ -91,6 +136,10 @@ async function writeFileFromBlob(blob, suffix) {
 }
 
 async function transcribeAudio(audio) {
+  if (!(await canReadFile(modelPath))) {
+    throw new Error(`本地 STT 模型不存在或不可读：${modelPath}。请先运行 bash scripts/setup_local_voice.sh。`);
+  }
+
   const inputPath = await writeFileFromBlob(audio, ".webm");
   const wavPath = inputPath.replace(/\.webm$/, ".wav");
   try {
@@ -240,6 +289,10 @@ function extractSpeakableSegments(text) {
 }
 
 async function streamChat({ config, send, text, turnId, visualSummary }) {
+  if (!config.apiKey) {
+    throw new Error("未配置 API Key，无法调用聊天模型。请先在前端保存 OpenAI-compatible 配置。");
+  }
+
   const messages = [
     {
       content: [
@@ -279,9 +332,9 @@ async function streamChat({ config, send, text, turnId, visualSummary }) {
       send("tts.start", { turnId });
       ttsStarted = true;
     }
+    send("tts.sentence_start", { text: segment, turnId });
     const audio = await synthesizeSpeech(segment, config.localTtsVoice);
     send("tts.audio", { ...audio, text: segment, turnId });
-    send("tts.sentence_start", { text: segment, turnId });
   }
 
   async function handleLine(line) {
@@ -345,6 +398,16 @@ async function handleVoiceTurn(request, response) {
     const text = await transcribeAudio(audio);
     send("stt.final", { sessionId, text, turnId });
 
+    if (!text.trim()) {
+      send("done", {
+        reason: "empty_transcript",
+        sessionId,
+        turnId,
+      });
+      response.end();
+      return;
+    }
+
     let visualSummary = "";
     const visualTool = detectVisualTool(text);
     if (visualTool) {
@@ -365,6 +428,12 @@ async function handleVoiceTurn(request, response) {
         send("tool.result", {
           name: visualTool.name,
           summary: visualSummary,
+          turnId,
+        });
+      } else {
+        send("tool.result", {
+          name: visualTool.name,
+          summary: "前端未能提供当前画面，已跳过视觉上下文。",
           turnId,
         });
       }
@@ -414,11 +483,12 @@ const server = createServer((request, response) => {
   }
   void (async () => {
     if (request.method === "GET" && request.url === "/health") {
+      const health = await readHealthStatus();
       response.writeHead(200, {
         "Access-Control-Allow-Origin": "*",
         "Content-Type": "application/json",
       });
-      response.end(JSON.stringify({ modelPath, ok: true, service: "audai-local-voice-node" }));
+      response.end(JSON.stringify(health));
       return;
     }
     if (request.method === "POST" && request.url === "/voice/turn") {
