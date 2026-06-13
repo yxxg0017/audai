@@ -39,6 +39,11 @@ type ChatApiResponse = {
   error?: string;
 };
 
+type ChatStreamEvent =
+  | { type: "meta"; model?: string }
+  | { type: "delta"; text?: string }
+  | { type: "done" };
+
 export type VoicePipelineState =
   | "idle"
   | "listening"
@@ -67,18 +72,60 @@ function getSpeechSynthesis() {
   return window.speechSynthesis ?? null;
 }
 
+function extractSpeakableSegments(text: string) {
+  const segments: string[] = [];
+  let startIndex = 0;
+
+  for (let index = 0; index < text.length; index += 1) {
+    if ("。！？!?；;\n".includes(text[index])) {
+      const segment = text.slice(startIndex, index + 1).trim();
+
+      if (segment) {
+        segments.push(segment);
+      }
+
+      startIndex = index + 1;
+    }
+  }
+
+  let rest = text.slice(startIndex);
+
+  if (rest.length > 72) {
+    const softBreakIndex = Math.max(
+      rest.lastIndexOf("，", 64),
+      rest.lastIndexOf(",", 64),
+      rest.lastIndexOf("、", 64),
+      rest.lastIndexOf("：", 64),
+      rest.lastIndexOf(":", 64),
+    );
+    const splitIndex = softBreakIndex > 24 ? softBreakIndex + 1 : 64;
+    const segment = rest.slice(0, splitIndex).trim();
+
+    if (segment) {
+      segments.push(segment);
+    }
+
+    rest = rest.slice(splitIndex);
+  }
+
+  return { rest, segments };
+}
+
 export function useVoicePipeline() {
   const [state, setState] = useState<VoicePipelineState>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [interimTranscript, setInterimTranscript] = useState<string | null>(null);
   const [lastTranscript, setLastTranscript] = useState<string | null>(null);
   const [lastAnswer, setLastAnswer] = useState<string | null>(null);
+  const [streamingAnswer, setStreamingAnswer] = useState<string | null>(null);
   const [model, setModel] = useState<string | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const pendingSpeechCountRef = useRef(0);
   const shouldListenRef = useRef(false);
 
   const stopSpeaking = useCallback(() => {
     const speechSynthesis = getSpeechSynthesis();
+    pendingSpeechCountRef.current = 0;
 
     if (speechSynthesis?.speaking) {
       speechSynthesis.cancel();
@@ -91,12 +138,11 @@ export function useVoicePipeline() {
     recognitionRef.current = null;
     stopSpeaking();
     setInterimTranscript(null);
+    setStreamingAnswer(null);
     setState("idle");
   }, [stopSpeaking]);
 
-  const speak = useCallback((text: string) => {
-    stopSpeaking();
-
+  const enqueueSpeech = useCallback((text: string) => {
     const speechSynthesis = getSpeechSynthesis();
 
     if (!speechSynthesis || typeof SpeechSynthesisUtterance === "undefined") {
@@ -109,15 +155,129 @@ export function useVoicePipeline() {
     utterance.lang = "zh-CN";
     utterance.rate = 1;
     utterance.onend = () => {
-      setState(shouldListenRef.current ? "listening" : "idle");
+      pendingSpeechCountRef.current = Math.max(
+        0,
+        pendingSpeechCountRef.current - 1,
+      );
+
+      if (pendingSpeechCountRef.current === 0) {
+        setState(shouldListenRef.current ? "listening" : "idle");
+      }
     };
     utterance.onerror = () => {
+      pendingSpeechCountRef.current = Math.max(
+        0,
+        pendingSpeechCountRef.current - 1,
+      );
       setErrorMessage("浏览器语音播放失败。");
       setState("error");
     };
+    pendingSpeechCountRef.current += 1;
     setState("speaking");
     speechSynthesis.speak(utterance);
-  }, [stopSpeaking]);
+    return true;
+  }, []);
+
+  const speak = useCallback((text: string) => {
+    stopSpeaking();
+    enqueueSpeech(text);
+  }, [enqueueSpeech, stopSpeaking]);
+
+  const readStreamingAnswer = useCallback(
+    async ({
+      response,
+      onAnswer,
+    }: {
+      response: Response;
+      onAnswer?: (answer: string) => void;
+    }) => {
+      if (!response.body) {
+        const payload = (await response.json()) as ChatApiResponse;
+
+        if (!response.ok || !payload.answer) {
+          throw new Error(payload.error ?? "语音流水线文本回复失败。");
+        }
+
+        setModel(payload.model ?? null);
+        setLastAnswer(payload.answer);
+        onAnswer?.(payload.answer);
+        speak(payload.answer);
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let lineBuffer = "";
+      let answer = "";
+      let speechBuffer = "";
+
+      function handleEvent(event: ChatStreamEvent) {
+        if (event.type === "meta") {
+          setModel(event.model ?? null);
+          return;
+        }
+
+        if (event.type !== "delta" || !event.text) {
+          return;
+        }
+
+        answer += event.text;
+        speechBuffer += event.text;
+        setLastAnswer(answer);
+        setStreamingAnswer(answer);
+
+        const { rest, segments } = extractSpeakableSegments(speechBuffer);
+        speechBuffer = rest;
+        segments.forEach((segment) => enqueueSpeech(segment));
+      }
+
+      function handleLine(line: string) {
+        const trimmedLine = line.trim();
+
+        if (!trimmedLine) {
+          return;
+        }
+
+        try {
+          handleEvent(JSON.parse(trimmedLine) as ChatStreamEvent);
+        } catch {
+          // Ignore malformed stream frames from the local API boundary.
+        }
+      }
+
+      while (true) {
+        const { done, value } = await reader.read();
+
+        if (done) {
+          break;
+        }
+
+        lineBuffer += decoder.decode(value, { stream: true });
+        const lines = lineBuffer.split("\n");
+        lineBuffer = lines.pop() ?? "";
+        lines.forEach(handleLine);
+      }
+
+      if (lineBuffer) {
+        handleLine(lineBuffer);
+      }
+
+      if (speechBuffer.trim()) {
+        enqueueSpeech(speechBuffer.trim());
+      }
+
+      const finalAnswer = answer.trim();
+
+      if (!finalAnswer) {
+        throw new Error("文本模型没有返回可展示文本。");
+      }
+
+      setStreamingAnswer(null);
+      setLastAnswer(finalAnswer);
+      onAnswer?.(finalAnswer);
+    },
+    [enqueueSpeech, speak],
+  );
 
   const ask = useCallback(
     async ({
@@ -140,32 +300,36 @@ export function useVoicePipeline() {
       setState("thinking");
       setErrorMessage(null);
       setInterimTranscript(null);
+      setStreamingAnswer(null);
       setLastTranscript(trimmedMessage);
+      stopSpeaking();
 
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: trimmedMessage,
-          openai: clientConfig,
-          visualContext,
-        }),
-      });
-      const payload = (await response.json()) as ChatApiResponse;
+      try {
+        const response = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: trimmedMessage,
+            openai: clientConfig,
+            visualContext,
+          }),
+        });
 
-      if (!response.ok || !payload.answer) {
-        const message = payload.error ?? "语音流水线文本回复失败。";
+        if (!response.ok) {
+          const payload = (await response.json()) as ChatApiResponse;
+          throw new Error(payload.error ?? "语音流水线文本回复失败。");
+        }
+
+        await readStreamingAnswer({ response, onAnswer });
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "语音流水线文本回复失败。";
         setErrorMessage(message);
+        setStreamingAnswer(null);
         setState("error");
-        return;
       }
-
-      setLastAnswer(payload.answer);
-      setModel(payload.model ?? null);
-      onAnswer?.(payload.answer);
-      speak(payload.answer);
     },
-    [speak],
+    [readStreamingAnswer, stopSpeaking],
   );
 
   const start = useCallback(
@@ -267,6 +431,7 @@ export function useVoicePipeline() {
     lastAnswer,
     lastTranscript,
     model,
+    streamingAnswer,
     state,
     ask,
     start,

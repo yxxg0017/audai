@@ -351,6 +351,7 @@ export function ConversationWorkspace({
   const visiblePipelineTranscript =
     voicePipeline.interimTranscript ??
     (voicePipeline.state === "thinking" ? voicePipeline.lastTranscript : null);
+  const visiblePipelineAnswer = voicePipeline.streamingAnswer;
   const realtimeConversationTranscripts = [...transcripts].reverse();
 
   const appendInteraction = useCallback((nextState: SessionState, action: SessionAction) => {
@@ -729,7 +730,7 @@ export function ConversationWorkspace({
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "抽帧失败。";
-      setSessionState("error");
+      setSessionState(stream ? "listening" : "idle");
       setFrameError(message);
       setMessages((current) =>
         keepMessageHistory([
@@ -1003,6 +1004,15 @@ export function ConversationWorkspace({
                 <p>{visiblePipelineTranscript}</p>
               </article>
             ) : null}
+            {isPipelineMode && visiblePipelineAnswer ? (
+              <article className="message message-assistant">
+                <div className="message-meta">
+                  <span>AI</span>
+                  <small>流式输出</small>
+                </div>
+                <p>{visiblePipelineAnswer}</p>
+              </article>
+            ) : null}
             {!isPipelineMode
               ? realtimeConversationTranscripts.map((transcript) => (
                   <article
@@ -1241,8 +1251,10 @@ export function ConversationWorkspace({
                 ) : null}
                 {voicePipeline.lastAnswer ? (
                   <article className="transcript-item transcript-assistant">
-                    <span>AI</span>
-                    <p>{voicePipeline.lastAnswer}</p>
+                    <span>
+                      AI{voicePipeline.streamingAnswer ? " · 流式" : ""}
+                    </span>
+                    <p>{voicePipeline.streamingAnswer ?? voicePipeline.lastAnswer}</p>
                   </article>
                 ) : null}
               </div>
