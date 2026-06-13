@@ -102,11 +102,12 @@ export async function POST(request: NextRequest) {
   const question =
     typeof body.question === "string" && body.question.trim()
       ? body.question.trim().slice(0, MAX_QUESTION_LENGTH)
-      : "请用中文简要描述画面中的主要内容，并指出需要注意的细节。";
+      : "请用简体中文简要描述画面中的主要内容，并指出需要注意的细节。";
   const model = openaiConfig.visionModel;
   const prompt = [
     "你是一个实时视觉对话助手。",
     "请基于用户提供的摄像头抽帧图片回答问题。",
+    "请始终使用简体中文。",
     "回答需要简洁、具体，只描述能从画面中合理判断的信息。",
     "如果画面信息不足，请明确说明不确定。",
     `用户问题：${question}`,

@@ -58,7 +58,7 @@ export type VoicePipelineState =
   | "error";
 
 const vadThreshold = 0.035;
-const speechStartMs = 150;
+const speechStartMs = 0;
 const silenceEndMs = 700;
 const interruptStartMs = 220;
 const minSpeechMs = 500;
@@ -184,6 +184,7 @@ export function useVoicePipeline() {
   const [interimTranscript, setInterimTranscript] = useState<string | null>(null);
   const [lastTranscript, setLastTranscript] = useState<string | null>(null);
   const [lastAnswer, setLastAnswer] = useState<string | null>(null);
+  const [visualToolSummary, setVisualToolSummary] = useState<string | null>(null);
   const [streamingAnswer, setStreamingAnswer] = useState<string | null>(null);
   const [model, setModel] = useState<string | null>(null);
   const [backendSttStatus, setBackendSttStatus] = useState<BackendSttStatus>({
@@ -249,9 +250,19 @@ export function useVoicePipeline() {
     try {
       await new Promise<void>((resolve, reject) => {
         audio.onended = () => resolve();
-        audio.onerror = () => reject(new Error("音频播放失败。"));
+        audio.onerror = () => reject(new Error("音频播放失败，浏览器无法播放本地 TTS 返回的音频。"));
         void audio.play().catch(reject);
       });
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "音频播放失败，浏览器无法播放本地 TTS 返回的音频。";
+      setErrorMessage(message);
+      setBackendSttStatus((current) => ({
+        ...current,
+        errorMessage: message,
+      }));
     } finally {
       URL.revokeObjectURL(audioUrl);
       localAudioRefsRef.current = localAudioRefsRef.current.filter(
@@ -540,7 +551,7 @@ export function useVoicePipeline() {
       }
 
       if (event === "tool.result") {
-        setInterimTranscript(data.summary ?? null);
+        setVisualToolSummary(data.summary ?? null);
         return;
       }
 
@@ -970,6 +981,7 @@ export function useVoicePipeline() {
       shouldListenRef.current = true;
       setErrorMessage(null);
       setInterimTranscript(null);
+      setVisualToolSummary(null);
       setStreamingAnswer(null);
       lastAnswerRef.current = "";
       lastTranscriptRef.current = "";
@@ -1013,6 +1025,7 @@ export function useVoicePipeline() {
     audioContextRef.current = null;
     analyserRef.current = null;
     setInterimTranscript(null);
+    setVisualToolSummary(null);
     setStreamingAnswer(null);
     setBackendSttStatus((current) => ({
       ...current,
@@ -1032,6 +1045,7 @@ export function useVoicePipeline() {
     model,
     streamingAnswer,
     state,
+    visualToolSummary,
     ask,
     start,
     stop,
