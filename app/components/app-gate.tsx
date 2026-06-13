@@ -21,15 +21,31 @@ type ConfigFormProps = {
 };
 
 function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps) {
-  const [draft, setDraft] = useState(config);
-
-  function updateField(field: keyof ClientConfig, value: string) {
-    setDraft((current) => ({ ...current, [field]: value }));
-  }
-
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    onSave(normalizeClientConfig(draft));
+    const formData = new FormData(event.currentTarget);
+    const voiceMode = formData.get("voiceMode");
+
+    onSave(
+      normalizeClientConfig({
+        ...config,
+        apiKey: String(formData.get("apiKey") ?? ""),
+        baseUrl: String(formData.get("baseUrl") ?? ""),
+        chatModel: String(formData.get("chatModel") ?? config.chatModel),
+        realtimeModel: String(
+          formData.get("realtimeModel") ?? config.realtimeModel,
+        ),
+        realtimeTranscriptionModel: String(
+          formData.get("realtimeTranscriptionModel") ??
+            config.realtimeTranscriptionModel,
+        ),
+        realtimeVoice: String(
+          formData.get("realtimeVoice") ?? config.realtimeVoice,
+        ),
+        visionModel: String(formData.get("visionModel") ?? config.visionModel),
+        voiceMode: voiceMode === "realtime" ? "realtime" : "pipeline",
+      }),
+    );
   }
 
   return (
@@ -39,21 +55,21 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
           <span>OpenAI API Key</span>
           <input
             autoComplete="off"
-            onChange={(event) => updateField("apiKey", event.target.value)}
+            defaultValue={config.apiKey}
+            name="apiKey"
             placeholder="sk-..."
             required
             type="password"
-            value={draft.apiKey}
           />
         </label>
         <label>
           <span>Base URL</span>
           <input
-            onChange={(event) => updateField("baseUrl", event.target.value)}
+            defaultValue={config.baseUrl}
+            name="baseUrl"
             placeholder="https://api.openai.com/v1"
             required
             type="url"
-            value={draft.baseUrl}
           />
         </label>
         {mode === "panel" ? (
@@ -61,10 +77,8 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
             <label>
               <span>语音模式</span>
               <select
-                onChange={(event) =>
-                  updateField("voiceMode", event.target.value)
-                }
-                value={draft.voiceMode}
+                defaultValue={config.voiceMode}
+                name="voiceMode"
               >
                 <option value="pipeline">语音流水线</option>
                 <option value="realtime">OpenAI Realtime</option>
@@ -73,38 +87,36 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
             <label>
               <span>视觉模型</span>
               <input
-                onChange={(event) => updateField("visionModel", event.target.value)}
-                value={draft.visionModel}
+                defaultValue={config.visionModel}
+                name="visionModel"
               />
             </label>
             <label>
               <span>聊天模型</span>
               <input
-                onChange={(event) => updateField("chatModel", event.target.value)}
-                value={draft.chatModel}
+                defaultValue={config.chatModel}
+                name="chatModel"
               />
             </label>
             <label>
               <span>Realtime 模型</span>
               <input
-                onChange={(event) => updateField("realtimeModel", event.target.value)}
-                value={draft.realtimeModel}
+                defaultValue={config.realtimeModel}
+                name="realtimeModel"
               />
             </label>
             <label>
               <span>Realtime 声音</span>
               <input
-                onChange={(event) => updateField("realtimeVoice", event.target.value)}
-                value={draft.realtimeVoice}
+                defaultValue={config.realtimeVoice}
+                name="realtimeVoice"
               />
             </label>
             <label>
               <span>语音转写模型</span>
               <input
-                onChange={(event) =>
-                  updateField("realtimeTranscriptionModel", event.target.value)
-                }
-                value={draft.realtimeTranscriptionModel}
+                defaultValue={config.realtimeTranscriptionModel}
+                name="realtimeTranscriptionModel"
               />
             </label>
           </>
