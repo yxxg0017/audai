@@ -242,15 +242,33 @@ async function transcribeAudio(audio) {
 async function synthesizeSpeech(text, voice) {
   const dir = join(tmpdir(), "audai-local-voice");
   await mkdir(dir, { recursive: true });
-  const outputPath = join(dir, `${randomUUID()}.aiff`);
-  const args = voice ? ["-v", voice, "-o", outputPath, text] : ["-o", outputPath, text];
-  await runCommand("say", args);
-  const audio = await readFile(outputPath);
-  void rm(outputPath, { force: true });
-  return {
-    audioBase64: audio.toString("base64"),
-    mimeType: "audio/aiff",
-  };
+  const id = randomUUID();
+  const aiffPath = join(dir, `${id}.aiff`);
+  const wavPath = join(dir, `${id}.wav`);
+  const args = voice ? ["-v", voice, "-o", aiffPath, text] : ["-o", aiffPath, text];
+  try {
+    await runCommand("say", args);
+    await runCommand("ffmpeg", [
+      "-y",
+      "-i",
+      aiffPath,
+      "-ar",
+      "24000",
+      "-ac",
+      "1",
+      "-f",
+      "wav",
+      wavPath,
+    ]);
+    const audio = await readFile(wavPath);
+    return {
+      audioBase64: audio.toString("base64"),
+      mimeType: "audio/wav",
+    };
+  } finally {
+    void rm(aiffPath, { force: true });
+    void rm(wavPath, { force: true });
+  }
 }
 
 function detectVisualTool(text) {

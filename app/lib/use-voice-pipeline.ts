@@ -575,7 +575,7 @@ export function useVoicePipeline() {
       }
 
       if (event === "tts.audio" && data.audioBase64) {
-        const blob = decodeBase64Audio(data.audioBase64, data.mimeType ?? "audio/aiff");
+        const blob = decodeBase64Audio(data.audioBase64, data.mimeType ?? "audio/wav");
         void playAudioBlob(blob);
         return;
       }
