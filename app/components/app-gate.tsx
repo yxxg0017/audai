@@ -119,46 +119,71 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
     }
   }
 
-  async function handleDetectModels() {
-    const currentConfig = readFormConfig();
-
+  async function detectModelsForConfig(currentConfig: ClientConfig) {
     if (!currentConfig.apiKey || !currentConfig.baseUrl) {
-      setModelDetectionStatus("请先填写 API Key 和 Base URL。");
-      return;
+      throw new Error("请先填写 API Key 和 Base URL。");
     }
 
+    const response = await fetch("/api/models", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ openai: currentConfig }),
+    });
+    const payload = (await response.json()) as ModelsApiResponse;
+
+    if (!response.ok || !payload.suggested) {
+      throw new Error(payload.error ?? "模型检测失败。");
+    }
+
+    return {
+      config: normalizeClientConfig({
+        ...currentConfig,
+        ...payload.suggested,
+      }),
+      modelCount: payload.models?.length ?? 0,
+    };
+  }
+
+  async function handleDetectModels() {
     setModelDetectionStatus("正在读取模型列表...");
 
     try {
-      const response = await fetch("/api/models", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ openai: currentConfig }),
-      });
-      const payload = (await response.json()) as ModelsApiResponse;
-
-      if (!response.ok || !payload.suggested) {
-        throw new Error(payload.error ?? "模型检测失败。");
-      }
-
-      const nextConfig = normalizeClientConfig({
-        ...currentConfig,
-        ...payload.suggested,
-      });
-
-      detectedConfigRef.current = nextConfig;
-      applyConfigToVisibleFields(nextConfig);
+      const result = await detectModelsForConfig(readFormConfig());
+      detectedConfigRef.current = result.config;
+      applyConfigToVisibleFields(result.config);
       setModelDetectionStatus(
-        `已读取 ${payload.models?.length ?? 0} 个模型，并自动选择可用候选。`,
+        `已读取 ${result.modelCount} 个模型，并自动选择可用候选。`,
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : "模型检测失败。";
-      setModelDetectionStatus(message);
+      setModelDetectionStatus(
+        error instanceof Error ? error.message : "模型检测失败。",
+      );
     }
   }
 
-  function handleSave() {
-    onSave(readFormConfig());
+  async function handleSave() {
+    const currentConfig = readFormConfig();
+
+    if (mode === "gate") {
+      setModelDetectionStatus("正在检测模型并保存配置...");
+      try {
+        const result = await detectModelsForConfig(currentConfig);
+        detectedConfigRef.current = result.config;
+        setModelDetectionStatus(
+          `已读取 ${result.modelCount} 个模型，并保存可用候选。`,
+        );
+        onSave(result.config);
+        return;
+      } catch (error) {
+        setModelDetectionStatus(
+          error instanceof Error
+            ? `模型检测失败，已保留当前模型：${error.message}`
+            : "模型检测失败，已保留当前模型。",
+        );
+      }
+    }
+
+    onSave(currentConfig);
   }
 
   return (

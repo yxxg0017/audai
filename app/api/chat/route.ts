@@ -136,8 +136,9 @@ export async function POST(request: NextRequest) {
   }
 
   if (!response.ok) {
+    const message = await readErrorResponse(response);
     return NextResponse.json(
-      { error: await readErrorResponse(response) },
+      { error: `文本模型调用失败，模型 ${openaiConfig.chatModel}：${message}` },
       { status: response.status },
     );
   }

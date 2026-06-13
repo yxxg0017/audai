@@ -150,8 +150,9 @@ export async function POST(request: NextRequest) {
   }
 
   if (!response.ok) {
+    const message = await readErrorResponse(response);
     return NextResponse.json(
-      { error: await readErrorResponse(response) },
+      { error: `视觉模型调用失败，模型 ${model}：${message}` },
       { status: response.status },
     );
   }

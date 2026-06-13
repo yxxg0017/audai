@@ -324,7 +324,9 @@ async function analyzeImage({ config, imageDataUrl, question, tool }) {
   });
   const payload = await response.json();
   if (!response.ok) {
-    throw new Error(payload.error?.message ?? "视觉工具调用失败。");
+    throw new Error(
+      `视觉工具调用失败，模型 ${config.visionModel}：${payload.error?.message ?? "未知错误。"}`,
+    );
   }
   return toSimplifiedChinese(payload.choices?.[0]?.message?.content?.trim() ?? "");
 }
@@ -385,7 +387,9 @@ async function streamChat({ config, send, text, turnId, visualSummary }) {
   });
   if (!response.ok || !response.body) {
     const payload = await response.json().catch(() => ({}));
-    throw new Error(payload.error?.message ?? "文本模型调用失败。");
+    throw new Error(
+      `文本模型调用失败，模型 ${config.chatModel}：${payload.error?.message ?? "未知错误。"}`,
+    );
   }
 
   const reader = response.body.getReader();
