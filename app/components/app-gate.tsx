@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   clearClientConfig,
   defaultClientConfig,
@@ -21,35 +21,36 @@ type ConfigFormProps = {
 };
 
 function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps) {
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const formData = new FormData(event.currentTarget);
-    const voiceMode = formData.get("voiceMode");
+  const apiKeyRef = useRef<HTMLInputElement | null>(null);
+  const baseUrlRef = useRef<HTMLInputElement | null>(null);
+  const chatModelRef = useRef<HTMLInputElement | null>(null);
+  const realtimeModelRef = useRef<HTMLInputElement | null>(null);
+  const realtimeTranscriptionModelRef = useRef<HTMLInputElement | null>(null);
+  const realtimeVoiceRef = useRef<HTMLInputElement | null>(null);
+  const visionModelRef = useRef<HTMLInputElement | null>(null);
+  const voiceModeRef = useRef<HTMLSelectElement | null>(null);
 
+  function handleSave() {
     onSave(
       normalizeClientConfig({
         ...config,
-        apiKey: String(formData.get("apiKey") ?? ""),
-        baseUrl: String(formData.get("baseUrl") ?? ""),
-        chatModel: String(formData.get("chatModel") ?? config.chatModel),
-        realtimeModel: String(
-          formData.get("realtimeModel") ?? config.realtimeModel,
-        ),
-        realtimeTranscriptionModel: String(
-          formData.get("realtimeTranscriptionModel") ??
-            config.realtimeTranscriptionModel,
-        ),
-        realtimeVoice: String(
-          formData.get("realtimeVoice") ?? config.realtimeVoice,
-        ),
-        visionModel: String(formData.get("visionModel") ?? config.visionModel),
-        voiceMode: voiceMode === "realtime" ? "realtime" : "pipeline",
+        apiKey: apiKeyRef.current?.value ?? "",
+        baseUrl: baseUrlRef.current?.value ?? "",
+        chatModel: chatModelRef.current?.value ?? config.chatModel,
+        realtimeModel: realtimeModelRef.current?.value ?? config.realtimeModel,
+        realtimeTranscriptionModel:
+          realtimeTranscriptionModelRef.current?.value ??
+          config.realtimeTranscriptionModel,
+        realtimeVoice: realtimeVoiceRef.current?.value ?? config.realtimeVoice,
+        visionModel: visionModelRef.current?.value ?? config.visionModel,
+        voiceMode:
+          voiceModeRef.current?.value === "realtime" ? "realtime" : "pipeline",
       }),
     );
   }
 
   return (
-    <form className="config-form" onSubmit={handleSubmit}>
+    <div className="config-form">
       <div className="config-grid">
         <label>
           <span>OpenAI API Key</span>
@@ -58,6 +59,7 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
             defaultValue={config.apiKey}
             name="apiKey"
             placeholder="sk-..."
+            ref={apiKeyRef}
             required
             type="password"
           />
@@ -68,6 +70,7 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
             defaultValue={config.baseUrl}
             name="baseUrl"
             placeholder="https://api.openai.com/v1"
+            ref={baseUrlRef}
             required
             type="url"
           />
@@ -79,6 +82,7 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
               <select
                 defaultValue={config.voiceMode}
                 name="voiceMode"
+                ref={voiceModeRef}
               >
                 <option value="pipeline">语音流水线</option>
                 <option value="realtime">OpenAI Realtime</option>
@@ -89,6 +93,7 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
               <input
                 defaultValue={config.visionModel}
                 name="visionModel"
+                ref={visionModelRef}
               />
             </label>
             <label>
@@ -96,6 +101,7 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
               <input
                 defaultValue={config.chatModel}
                 name="chatModel"
+                ref={chatModelRef}
               />
             </label>
             <label>
@@ -103,6 +109,7 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
               <input
                 defaultValue={config.realtimeModel}
                 name="realtimeModel"
+                ref={realtimeModelRef}
               />
             </label>
             <label>
@@ -110,6 +117,7 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
               <input
                 defaultValue={config.realtimeVoice}
                 name="realtimeVoice"
+                ref={realtimeVoiceRef}
               />
             </label>
             <label>
@@ -117,6 +125,7 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
               <input
                 defaultValue={config.realtimeTranscriptionModel}
                 name="realtimeTranscriptionModel"
+                ref={realtimeTranscriptionModelRef}
               />
             </label>
           </>
@@ -134,16 +143,46 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
             清除配置
           </button>
         ) : null}
-        <button className="primary-button" type="submit">
+        <button className="primary-button" onClick={handleSave} type="button">
           保存并进入
         </button>
       </div>
-    </form>
+    </div>
   );
 }
 
 export function AppGate() {
-  const [config, setConfig] = useState<ClientConfig>(() => loadClientConfig());
+  const [config, setConfig] = useState<ClientConfig>(() => {
+    const storedConfig = loadClientConfig();
+
+    if (typeof window === "undefined") {
+      return storedConfig;
+    }
+
+    const searchParams = new URLSearchParams(window.location.search);
+    const apiKey = searchParams.get("apiKey");
+    const baseUrl = searchParams.get("baseUrl");
+
+    if (!apiKey && !baseUrl) {
+      return storedConfig;
+    }
+
+    const nextConfig = normalizeClientConfig({
+      ...storedConfig,
+      apiKey: apiKey ?? storedConfig.apiKey,
+      baseUrl: baseUrl ?? storedConfig.baseUrl,
+    });
+
+    try {
+      saveClientConfig(nextConfig);
+    } catch {
+      // The in-memory config still lets the current page enter the app.
+    }
+
+    window.history.replaceState(null, "", window.location.pathname);
+
+    return nextConfig;
+  });
   const [showSettings, setShowSettings] = useState(false);
   const [storageWarning, setStorageWarning] = useState<string | null>(null);
   const isReady = isClientConfigReady(config);
