@@ -123,27 +123,51 @@ def tts():
   if not text:
     return jsonify({"error": "missing text"}), 400
 
-  output = tempfile.NamedTemporaryFile(suffix=".aiff", delete=False)
-  output.close()
-  command = ["say", "-o", output.name, text]
+  aiff_output = tempfile.NamedTemporaryFile(suffix=".aiff", delete=False)
+  aiff_output.close()
+  wav_output = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+  wav_output.close()
+  command = ["say", "-o", aiff_output.name, text]
 
   if voice:
-    command = ["say", "-v", voice, "-o", output.name, text]
+    command = ["say", "-v", voice, "-o", aiff_output.name, text]
 
   try:
     subprocess.run(command, check=True, capture_output=True)
+    subprocess.run(
+      [
+        "ffmpeg",
+        "-y",
+        "-i",
+        aiff_output.name,
+        "-ar",
+        "24000",
+        "-ac",
+        "1",
+        "-f",
+        "wav",
+        wav_output.name,
+      ],
+      check=True,
+      capture_output=True,
+    )
   except subprocess.CalledProcessError as error:
-    Path(output.name).unlink(missing_ok=True)
+    Path(aiff_output.name).unlink(missing_ok=True)
+    Path(wav_output.name).unlink(missing_ok=True)
     stderr = decode_stderr(error.stderr)
-    return jsonify({"error": stderr or "macOS say failed"}), 500
+    return jsonify({"error": stderr or "macOS say or ffmpeg failed"}), 500
+  finally:
+    Path(aiff_output.name).unlink(missing_ok=True)
 
-  return send_file(
-    output.name,
-    mimetype="audio/aiff",
+  response = send_file(
+    wav_output.name,
+    mimetype="audio/wav",
     as_attachment=False,
-    download_name="audai-local-tts.aiff",
+    download_name="audai-local-tts.wav",
     max_age=0,
   )
+  response.call_on_close(lambda: Path(wav_output.name).unlink(missing_ok=True))
+  return response
 
 
 @app.get("/health")

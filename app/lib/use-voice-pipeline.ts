@@ -258,16 +258,9 @@ export function useVoicePipeline() {
         audio.onerror = () => reject(new Error("音频播放失败，浏览器无法播放本地 TTS 返回的音频。"));
         void audio.play().catch(reject);
       });
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "音频播放失败，浏览器无法播放本地 TTS 返回的音频。";
-      setErrorMessage(message);
-      setBackendSttStatus((current) => ({
-        ...current,
-        errorMessage: message,
-      }));
+      return true;
+    } catch {
+      return false;
     } finally {
       URL.revokeObjectURL(audioUrl);
       localAudioRefsRef.current = localAudioRefsRef.current.filter(
@@ -326,7 +319,10 @@ export function useVoicePipeline() {
           throw new Error(payload.error ?? "本地 TTS 合成失败。");
         }
 
-        await playAudioBlob(await response.blob());
+        const played = await playAudioBlob(await response.blob());
+        if (!played) {
+          await enqueueBrowserSpeech(text);
+        }
         return;
       }
 
@@ -576,7 +572,19 @@ export function useVoicePipeline() {
 
       if (event === "tts.audio" && data.audioBase64) {
         const blob = decodeBase64Audio(data.audioBase64, data.mimeType ?? "audio/wav");
-        void playAudioBlob(blob);
+        const played = await playAudioBlob(blob);
+        if (!played && data.text?.trim()) {
+          try {
+            await enqueueBrowserSpeech(data.text);
+          } catch {
+            const message = `音频播放失败，且浏览器语音合成兜底失败。音频类型：${blob.type || "unknown"}，大小：${blob.size} bytes。`;
+            setErrorMessage(message);
+            setBackendSttStatus((current) => ({
+              ...current,
+              errorMessage: message,
+            }));
+          }
+        }
         return;
       }
 
@@ -602,7 +610,7 @@ export function useVoicePipeline() {
         throw new Error(data.message ?? "本地语音服务返回错误。");
       }
     },
-    [playAudioBlob, postToolResult, setPipelineState],
+    [enqueueBrowserSpeech, playAudioBlob, postToolResult, setPipelineState],
   );
 
   const sendVoiceTurn = useCallback(
