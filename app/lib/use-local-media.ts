@@ -15,17 +15,24 @@ export type LocalMediaStatus = {
 };
 
 export type StartMediaResult =
-  | { ok: true }
+  | { ok: true; warningMessage?: string }
   | { ok: false; errorMessage: string };
 
 export type CameraFacingMode = "user" | "environment";
+type FacingModePreference = "exact" | "ideal";
 
-function createMediaConstraints(facingMode: CameraFacingMode): MediaStreamConstraints {
+function createMediaConstraints(
+  facingMode: CameraFacingMode,
+  preference: FacingModePreference = "ideal",
+): MediaStreamConstraints {
   return {
     video: {
-    width: { ideal: 1280 },
-    height: { ideal: 720 },
-      facingMode: { ideal: facingMode },
+      width: { ideal: 1280 },
+      height: { ideal: 720 },
+      facingMode:
+        preference === "exact"
+          ? { exact: facingMode }
+          : { ideal: facingMode },
     },
     audio: {
       echoCancellation: true,
@@ -92,6 +99,13 @@ export function useLocalMedia(): LocalMediaStatus & {
     setPermissionState("idle");
   }, [stopAudioMeter]);
 
+  const stopCurrentStream = useCallback(() => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    setStream(null);
+    stopAudioMeter();
+  }, [stopAudioMeter]);
+
   const startAudioMeter = useCallback((mediaStream: MediaStream) => {
     stopAudioMeter();
 
@@ -132,9 +146,15 @@ export function useLocalMedia(): LocalMediaStatus & {
     updateLevel();
   }, [stopAudioMeter]);
 
-  const startMediaWithFacingMode = useCallback(async (
-    nextFacingMode: CameraFacingMode,
-  ): Promise<StartMediaResult> => {
+  const startMediaWithFacingMode = useCallback(async ({
+    nextFacingMode,
+    preference = "ideal",
+    releaseCurrent = false,
+  }: {
+    nextFacingMode: CameraFacingMode;
+    preference?: FacingModePreference;
+    releaseCurrent?: boolean;
+  }): Promise<StartMediaResult> => {
     if (!navigator.mediaDevices?.getUserMedia) {
       const isSecureContext = window.isSecureContext;
       const protocol = window.location.protocol;
@@ -152,9 +172,13 @@ export function useLocalMedia(): LocalMediaStatus & {
     setErrorMessage(null);
 
     try {
+      if (releaseCurrent) {
+        stopCurrentStream();
+      }
+
       const mediaStream =
         await navigator.mediaDevices.getUserMedia(
-          createMediaConstraints(nextFacingMode),
+          createMediaConstraints(nextFacingMode, preference),
         );
       setStream((currentStream) => {
         currentStream?.getTracks().forEach((track) => track.stop());
@@ -172,20 +196,49 @@ export function useLocalMedia(): LocalMediaStatus & {
       stopAudioMeter();
       return { ok: false, errorMessage: message };
     }
-  }, [startAudioMeter, stopAudioMeter]);
+  }, [startAudioMeter, stopAudioMeter, stopCurrentStream]);
 
   const startMedia = useCallback(
-    () => startMediaWithFacingMode(facingMode),
+    () =>
+      startMediaWithFacingMode({
+        nextFacingMode: facingMode,
+        releaseCurrent: Boolean(streamRef.current),
+      }),
     [facingMode, startMediaWithFacingMode],
   );
 
   const switchCamera = useCallback(async (): Promise<StartMediaResult> => {
     const nextFacingMode = facingMode === "user" ? "environment" : "user";
     const wasActive = Boolean(streamRef.current);
-    const result = await startMediaWithFacingMode(nextFacingMode);
+    const result = await startMediaWithFacingMode({
+      nextFacingMode,
+      preference: "exact",
+      releaseCurrent: true,
+    });
+
+    if (!result.ok) {
+      const fallbackResult = await startMediaWithFacingMode({
+        nextFacingMode,
+        preference: "ideal",
+      });
+
+      if (fallbackResult.ok) {
+        return fallbackResult;
+      }
+    }
 
     if (!result.ok && wasActive) {
-      await startMediaWithFacingMode(facingMode);
+      const restoreResult = await startMediaWithFacingMode({
+        nextFacingMode: facingMode,
+        preference: "ideal",
+      });
+
+      if (restoreResult.ok) {
+        return {
+          ok: true,
+          warningMessage: `无法切换到${nextFacingMode === "environment" ? "后置" : "前置"}摄像头，已恢复原摄像头。${result.errorMessage}`,
+        };
+      }
     }
 
     return result;

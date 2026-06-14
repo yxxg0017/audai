@@ -656,16 +656,21 @@ export function ConversationWorkspace({
 
     if (result.ok) {
       setSessionState("listening");
-      setVisionContext(null);
-      setLatestFrame(null);
-      setVisionContextStatus("摄像头已切换，视觉缓存已清空。");
+      if (result.warningMessage) {
+        setVisionContextStatus(result.warningMessage);
+      } else {
+        setVisionContext(null);
+        setLatestFrame(null);
+        setVisionContextStatus("摄像头已切换，视觉缓存已清空。");
+      }
       setTimeline((current) =>
         [
           {
             id: `camera-switch-${Date.now()}`,
             label: "摄像头",
-            detail:
-              nextFacingMode === "environment"
+            detail: result.warningMessage
+              ? "切换失败，已恢复原摄像头"
+              : nextFacingMode === "environment"
                 ? "已切换到后置摄像头"
                 : "已切换到前置摄像头",
           },

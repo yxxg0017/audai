@@ -190,6 +190,21 @@ function decodeBase64Audio(base64: string, mimeType: string) {
   return new Blob([bytes], { type: mimeType });
 }
 
+async function readErrorMessage(response: Response, fallback: string) {
+  const text = await response.text().catch(() => "");
+
+  if (!text) {
+    return fallback;
+  }
+
+  try {
+    const payload = JSON.parse(text) as { error?: string; message?: string };
+    return payload.error ?? payload.message ?? text;
+  } catch {
+    return text;
+  }
+}
+
 export function useVoicePipeline() {
   const [state, setState] = useState<VoicePipelineState>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -510,14 +525,20 @@ export function useVoicePipeline() {
       turnId,
     }: {
       clientConfig: ClientConfig;
-      imageDataUrl: string;
+      imageDataUrl: string | null;
       turnId: string;
     }) => {
-      await fetch(toToolResultUrl(clientConfig.localVoiceUrl), {
+      const response = await fetch(toToolResultUrl(clientConfig.localVoiceUrl), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ imageDataUrl, turnId }),
       });
+
+      if (!response.ok) {
+        throw new Error(
+          await readErrorMessage(response, "视觉工具结果回传失败。"),
+        );
+      }
     },
     [],
   );
@@ -556,9 +577,11 @@ export function useVoicePipeline() {
           reason: data.reason,
           turnId: data.turnId,
         });
-        if (imageDataUrl) {
-          await postToolResult({ clientConfig, imageDataUrl, turnId: data.turnId });
-        }
+        await postToolResult({
+          clientConfig,
+          imageDataUrl: imageDataUrl ?? null,
+          turnId: data.turnId,
+        });
         return;
       }
 
@@ -683,7 +706,9 @@ export function useVoicePipeline() {
         });
 
         if (!response.ok || !response.body) {
-          throw new Error("本地语音会话服务不可用。");
+          throw new Error(
+            await readErrorMessage(response, "本地语音会话服务不可用。"),
+          );
         }
 
         const reader = response.body.getReader();
@@ -695,13 +720,19 @@ export function useVoicePipeline() {
           if (!parsed.data) {
             return;
           }
-          await handleVoiceEvent({
-            clientConfig,
-            data: JSON.parse(parsed.data) as VoiceSseEvent,
-            event: parsed.event,
-            onAnswer,
-            onVisualToolCall,
-          });
+          try {
+            await handleVoiceEvent({
+              clientConfig,
+              data: JSON.parse(parsed.data) as VoiceSseEvent,
+              event: parsed.event,
+              onAnswer,
+              onVisualToolCall,
+            });
+          } catch (error) {
+            throw new Error(
+              error instanceof Error ? error.message : "本地语音事件处理失败。",
+            );
+          }
         }
 
         while (true) {

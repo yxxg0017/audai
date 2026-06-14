@@ -346,6 +346,47 @@ function detectVisualTool(text) {
   );
 }
 
+function normalizeModelName(model = "") {
+  return model.replace(/^\[[^\]]+\]/, "");
+}
+
+function isProbablyVisionModel(model = "") {
+  const normalized = normalizeModelName(model).toLowerCase();
+  return [
+    "4o",
+    "4.1",
+    "vision",
+    "vl",
+    "gemini",
+    "qwen-vl",
+    "glm-4v",
+  ].some((keyword) => normalized.includes(keyword));
+}
+
+function resolveVisionModel(config) {
+  const visionModel = String(config.visionModel ?? "").trim();
+  const chatModel = String(config.chatModel ?? "").trim();
+
+  if (isProbablyVisionModel(visionModel)) {
+    return visionModel;
+  }
+
+  if (isProbablyVisionModel(chatModel)) {
+    return chatModel;
+  }
+
+  if (visionModel.startsWith("[") || chatModel.startsWith("[")) {
+    return "[按次]gpt-4o";
+  }
+
+  return "gpt-4o";
+}
+
+function estimateDataUrlBytes(dataUrl) {
+  const base64 = String(dataUrl).split(",")[1] ?? "";
+  return Math.round((base64.length * 3) / 4);
+}
+
 function createSse(response) {
   response.writeHead(200, {
     "Access-Control-Allow-Origin": "*",
@@ -406,13 +447,14 @@ async function streamChat({ config, imageDataUrl, send, text, timings, turnId, v
   }
 
   const hasVisualInput = Boolean(imageDataUrl && visualTool);
-  const model = hasVisualInput ? config.visionModel : config.chatModel;
+  const model = hasVisualInput ? resolveVisionModel(config) : config.chatModel;
   const promptText = [
     "你是一个低延迟 AI 视觉对话助手。",
     "请用自然简体中文回答，默认不超过 3 句话。",
     hasVisualInput
       ? [
           "当前用户问题命中了视觉工具，摄像头抽帧已经作为图片输入。",
+          "你应当基于随消息提供的 image_url 图片作答，不要声称没有收到图像，除非图片本身不可读取。",
           visualTool.prompt,
           "请直接结合图片回答；看不清或无法判断时要明确说明不确定。",
         ].join("\n")
@@ -600,9 +642,10 @@ async function handleVoiceTurn(request, response) {
       });
       if (result?.imageDataUrl) {
         imageDataUrl = result.imageDataUrl;
+        const visionModel = resolveVisionModel(config);
         send("tool.result", {
           name: visualTool.name,
-          summary: "已接收当前画面，将直接并入本轮多模态流式回答。",
+          summary: `已接收当前画面（约 ${estimateDataUrlBytes(imageDataUrl)} bytes），将使用 ${visionModel} 进行多模态流式回答。`,
           turnId,
         });
       } else {

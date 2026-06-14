@@ -30,6 +30,33 @@ const MAX_IMAGE_DATA_URL_LENGTH = 2_000_000;
 const MAX_QUESTION_LENGTH = 500;
 const imageDataUrlPattern = /^data:image\/(?:jpeg|jpg|png|webp);base64,/;
 
+function normalizeModelName(model = "") {
+  return model.replace(/^\[[^\]]+\]/, "");
+}
+
+function isProbablyVisionModel(model = "") {
+  const normalized = normalizeModelName(model).toLowerCase();
+  return ["4o", "4.1", "vision", "vl", "gemini", "qwen-vl", "glm-4v"].some(
+    (keyword) => normalized.includes(keyword),
+  );
+}
+
+function resolveVisionModel(visionModel: string, chatModel: string) {
+  if (isProbablyVisionModel(visionModel)) {
+    return visionModel;
+  }
+
+  if (isProbablyVisionModel(chatModel)) {
+    return chatModel;
+  }
+
+  if (visionModel.startsWith("[") || chatModel.startsWith("[")) {
+    return "[按次]gpt-4o";
+  }
+
+  return "gpt-4o";
+}
+
 function getMessageText(message?: ChatCompletionMessage) {
   if (!message?.content) {
     return "";
@@ -103,7 +130,10 @@ export async function POST(request: NextRequest) {
     typeof body.question === "string" && body.question.trim()
       ? body.question.trim().slice(0, MAX_QUESTION_LENGTH)
       : "请用简体中文简要描述画面中的主要内容，并指出需要注意的细节。";
-  const model = openaiConfig.visionModel;
+  const model = resolveVisionModel(
+    openaiConfig.visionModel,
+    openaiConfig.chatModel,
+  );
   const prompt = [
     "你是一个实时视觉对话助手。",
     "请基于用户提供的摄像头抽帧图片回答问题。",
