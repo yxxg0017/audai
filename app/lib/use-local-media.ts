@@ -9,6 +9,7 @@ export type LocalMediaStatus = {
   stream: MediaStream | null;
   audioLevel: number;
   errorMessage: string | null;
+  facingMode: CameraFacingMode;
   hasVideo: boolean;
   hasAudio: boolean;
 };
@@ -17,18 +18,22 @@ export type StartMediaResult =
   | { ok: true }
   | { ok: false; errorMessage: string };
 
-const mediaConstraints: MediaStreamConstraints = {
-  video: {
+export type CameraFacingMode = "user" | "environment";
+
+function createMediaConstraints(facingMode: CameraFacingMode): MediaStreamConstraints {
+  return {
+    video: {
     width: { ideal: 1280 },
     height: { ideal: 720 },
-    facingMode: "user",
-  },
-  audio: {
-    echoCancellation: true,
-    noiseSuppression: true,
-    autoGainControl: true,
-  },
-};
+      facingMode: { ideal: facingMode },
+    },
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    },
+  };
+}
 
 function getMediaErrorMessage(error: unknown) {
   if (error instanceof DOMException) {
@@ -51,14 +56,17 @@ function getMediaErrorMessage(error: unknown) {
 export function useLocalMedia(): LocalMediaStatus & {
   startMedia: () => Promise<StartMediaResult>;
   stopMedia: () => void;
+  switchCamera: () => Promise<StartMediaResult>;
 } {
   const [permissionState, setPermissionState] =
     useState<MediaPermissionState>("idle");
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [audioLevel, setAudioLevel] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [facingMode, setFacingMode] = useState<CameraFacingMode>("user");
   const audioContextRef = useRef<AudioContext | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   const stopAudioMeter = useCallback(() => {
     if (animationFrameRef.current !== null) {
@@ -79,6 +87,7 @@ export function useLocalMedia(): LocalMediaStatus & {
       currentStream?.getTracks().forEach((track) => track.stop());
       return null;
     });
+    streamRef.current = null;
     stopAudioMeter();
     setPermissionState("idle");
   }, [stopAudioMeter]);
@@ -123,7 +132,9 @@ export function useLocalMedia(): LocalMediaStatus & {
     updateLevel();
   }, [stopAudioMeter]);
 
-  const startMedia = useCallback(async (): Promise<StartMediaResult> => {
+  const startMediaWithFacingMode = useCallback(async (
+    nextFacingMode: CameraFacingMode,
+  ): Promise<StartMediaResult> => {
     if (!navigator.mediaDevices?.getUserMedia) {
       const isSecureContext = window.isSecureContext;
       const protocol = window.location.protocol;
@@ -142,11 +153,15 @@ export function useLocalMedia(): LocalMediaStatus & {
 
     try {
       const mediaStream =
-        await navigator.mediaDevices.getUserMedia(mediaConstraints);
+        await navigator.mediaDevices.getUserMedia(
+          createMediaConstraints(nextFacingMode),
+        );
       setStream((currentStream) => {
         currentStream?.getTracks().forEach((track) => track.stop());
         return mediaStream;
       });
+      streamRef.current = mediaStream;
+      setFacingMode(nextFacingMode);
       setPermissionState("active");
       startAudioMeter(mediaStream);
       return { ok: true };
@@ -159,6 +174,23 @@ export function useLocalMedia(): LocalMediaStatus & {
     }
   }, [startAudioMeter, stopAudioMeter]);
 
+  const startMedia = useCallback(
+    () => startMediaWithFacingMode(facingMode),
+    [facingMode, startMediaWithFacingMode],
+  );
+
+  const switchCamera = useCallback(async (): Promise<StartMediaResult> => {
+    const nextFacingMode = facingMode === "user" ? "environment" : "user";
+    const wasActive = Boolean(streamRef.current);
+    const result = await startMediaWithFacingMode(nextFacingMode);
+
+    if (!result.ok && wasActive) {
+      await startMediaWithFacingMode(facingMode);
+    }
+
+    return result;
+  }, [facingMode, startMediaWithFacingMode]);
+
   useEffect(() => stopMedia, [stopMedia]);
 
   return {
@@ -166,10 +198,12 @@ export function useLocalMedia(): LocalMediaStatus & {
     stream,
     audioLevel,
     errorMessage,
+    facingMode,
     hasVideo: Boolean(stream?.getVideoTracks().length),
     hasAudio: Boolean(stream?.getAudioTracks().length),
     startMedia,
     stopMedia,
+    switchCamera,
   };
 }
 

@@ -274,10 +274,12 @@ export function ConversationWorkspace({
     stream,
     audioLevel,
     errorMessage,
+    facingMode,
     hasVideo,
     hasAudio,
     startMedia,
     stopMedia,
+    switchCamera,
   } = useLocalMedia();
   const {
     connectionState,
@@ -642,6 +644,51 @@ export function ConversationWorkspace({
     );
   }
 
+  async function handleSwitchCamera() {
+    if (!stream || !hasVideo) {
+      return;
+    }
+
+    voicePipeline.stop();
+    setSessionState("connecting");
+    const nextFacingMode = facingMode === "user" ? "environment" : "user";
+    const result = await switchCamera();
+
+    if (result.ok) {
+      setSessionState("listening");
+      setVisionContext(null);
+      setLatestFrame(null);
+      setVisionContextStatus("摄像头已切换，视觉缓存已清空。");
+      setTimeline((current) =>
+        [
+          {
+            id: `camera-switch-${Date.now()}`,
+            label: "摄像头",
+            detail:
+              nextFacingMode === "environment"
+                ? "已切换到后置摄像头"
+                : "已切换到前置摄像头",
+          },
+          ...current,
+        ].slice(0, 5),
+      );
+      return;
+    }
+
+    setSessionState("error");
+    setMessages((current) =>
+      keepMessageHistory([
+        ...current,
+        {
+          id: `camera-switch-error-${Date.now()}`,
+          role: "system",
+          content: result.errorMessage,
+          status: "complete",
+        } satisfies ChatMessage,
+      ]),
+    );
+  }
+
   function handleStop() {
     disconnectRealtime();
     voicePipeline.stop();
@@ -946,6 +993,18 @@ export function ConversationWorkspace({
               disabled={!hasAudio || sessionState === "idle" || sessionState === "error"}
             >
               {isMuted ? "取消静音" : "静音"}
+            </button>
+            <button
+              type="button"
+              onClick={handleSwitchCamera}
+              disabled={
+                !stream ||
+                !hasVideo ||
+                sessionState === "connecting" ||
+                permissionState === "requesting"
+              }
+            >
+              {facingMode === "user" ? "后置摄像头" : "前置摄像头"}
             </button>
             {isPipelineMode ? (
               <>
