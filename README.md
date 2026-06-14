@@ -1,94 +1,85 @@
 # AI 视觉对话助手
 
-本仓库用于完成 3 天议题实战项目：开发一款能调用摄像头和麦克风的 AI 对话应用，让 AI 可以看到实时画面、听到用户语音，并给出合适回应。
+AI 视觉对话助手是一款基于浏览器摄像头、麦克风和多模态模型的实时对话应用。用户可以通过文字或语音提问，应用会按需采集当前画面，把视觉上下文作为工具结果注入对话，并以流式文字和语音返回回答。
 
-当前仓库处于私有开发阶段；最终提交前需要按活动要求确认仓库可访问性、README、设计文档和 demo 视频无误。
+项目默认使用“本地语音流水线”：前端负责摄像头、麦克风、VAD 和音频分片采集；本地 Node 语音服务负责编排 STT、LLM、TTS 与视觉 tool；前端通过 SSE 接收转写、模型增量文本、音频片段和耗时指标。设置中也保留 OpenAI Realtime 模式，适合需要 WebRTC 实时语音的场景。
 
-## 提交状态
+## 功能特性
 
-- 代码仓库：开发期间可保持私有，提交截止后需改为公开或确保评委可访问。
-- demo 视频：待录制，最终链接需补充到 README。
-- 设计文档：[docs/design.md](docs/design.md)，已补全用户故事、技术方案和成本控制策略。
-- 提交方式：所有新增功能必须通过 PR 合并，避免最后一天一次性导入代码。
-
-## 项目目标
-
-应用需要实现：
-
-- 在用户授权后打开摄像头和麦克风。
-- 采集摄像头画面，让 AI 理解当前视觉内容。
-- 采集用户语音，让 AI 理解用户问题或指令。
-- 以自然、低延迟的方式返回文字或语音回应。
-- 综合考虑视觉理解准确性、语音交互流畅度，以及端云协同下的运营成本控制。
-
-## 已实现功能
-
-- 本地摄像头和麦克风授权采集。
-- 摄像头预览和麦克风输入电平展示。
-- 本地摄像头抽帧、缩放和压缩。
-- 多模态视觉分析 API。
-- Realtime 临时会话 API。
-- WebRTC 实时语音输入和模型语音输出。
-- Realtime 事件解析、语音转写和 AI 回复转写。
-- AI 回复中的用户插话打断。
-- 浏览器语音流水线模式：SpeechRecognition 转写、文本模型回复、SpeechSynthesis 播放。
-- 语音视觉意图识别和当前画面上下文注入。
-- 视觉摘要 60 秒缓存。
-- 请求限流和前端成本指标面板。
-- 直播式主界面：上方视频画面、下方可滚动对话历史，状态/日志/成本/设置放入顶部菜单。
-
-## 必交内容
-
-- 可运行的应用源码。
-- README：包含项目介绍、依赖说明、启动方式和 demo 指引。
-- demo 视频。
-- 设计文档：[docs/design.md](docs/design.md)，需要说明：
-  - 计划实现哪些用户故事，最终实现了哪些。
-  - 想到了哪些运营成本控制技巧，实际采用了哪些。
+- 首次进入配置页：保存 API Key、Base URL、模型和语音参数到浏览器本地配置。
+- 摄像头与麦克风采集：支持实时视频预览、麦克风电平显示和前后摄像头切换。
+- 语音活动检测：基于 Web Audio 的 VAD 识别一句话开始和结束，并保留预录缓冲，减少开头音节丢失。
+- 实时语音流水线：音频 turn 通过 HTTP POST 上传到本地语音服务，结果通过 SSE 流式返回。
+- 本地 STT/TTS：默认支持 whisper.cpp 转写和 macOS `say` 合成，也可配置 Piper 本地声线。
+- 流式模型回复：文本模型按 token 增量输出，TTS 可按句并行合成，降低听感延迟。
+- 视觉 tool 调用：当用户询问画面、物体、文字、颜色或位置时，自动抓取当前压缩帧并注入多模态回答。
+- 视觉成本优化：只上传压缩后的单帧图片，不传连续视频流，并复用短时间内的最近帧。
+- 状态与日志面板：顶部菜单展示媒体状态、STT 状态、SSE 事件、耗时指标和成本指标。
+- 手机局域网访问：前端通过同源代理访问本地语音服务，避免手机直接访问 `127.0.0.1` 和 HTTPS 混合内容问题。
 
 ## 技术栈
-
-当前应用骨架使用：
 
 - Next.js 16
 - React 19
 - TypeScript
-- ESLint
+- Web Audio API
+- MediaRecorder / getUserMedia
+- Server-Sent Events
+- OpenAI 兼容 Chat Completions / Vision API
+- whisper.cpp
+- macOS `say` 或 Piper
 
-当前实现已接入 OpenAI Realtime/WebRTC 和多模态视觉分析能力。
+## 项目结构
 
-## 第三方依赖与原创功能边界
+```text
+app/
+  api/
+    chat/                 文本模型流式接口
+    vision/               视觉分析接口
+    realtime/session/     Realtime 临时会话接口
+    local-voice/          本地语音服务同源代理
+  components/
+    app-gate.tsx          首次配置与应用入口
+    conversation-workspace.tsx
+  lib/
+    use-local-media.ts    摄像头、麦克风和前后摄像头切换
+    use-voice-pipeline.ts 本地语音流水线客户端
+    use-realtime-audio.ts Realtime WebRTC 客户端
+    frame-capture.ts      视频抽帧、缩放和压缩
+    client-config.ts      浏览器配置读写
+scripts/
+  local_voice_server.mjs  本地 STT/LLM/TTS 编排服务
+  setup_local_voice.sh    whisper.cpp 与模型安装脚本
+docs/
+  design.md              项目设计文档
+```
 
-第三方依赖：
-
-- `next`：应用框架和路由。
-- `react` / `react-dom`：前端组件渲染。
-- `typescript`：类型检查。
-- `eslint` / `eslint-config-next`：代码质量检查。
-
-当前原创功能：
-
-- 项目交付规范与 PR 流程设计。
-- AI 视觉对话助手的应用工作区界面。
-- 会话状态模型与 mock 交互流程。
-- 本地摄像头/麦克风采集、视觉抽帧压缩、视觉分析 API、Realtime WebRTC 语音连接、语音转写与打断控制。
-- 语音视觉上下文融合：检测用户语音中的视觉意图，按需抽取当前画面生成摘要，并注入 Realtime 对话。
-- 成本控制、最终文档和验收修复模块均在本仓库内分 PR 独立实现。
-
-如后续引入 Vercel AI SDK、OpenAI SDK、WebRTC 示例代码或复用个人历史代码，必须在对应 PR 描述和 README 中说明来源、用途和原创实现边界。
-
-## 本地启动
-
-环境要求：
+## 环境要求
 
 - Node.js 22 或更高版本
 - npm
+- ffmpeg
+- macOS 推荐安装 Xcode Command Line Tools
+- 本地 STT 需要 whisper.cpp 的 `whisper-cli`
+- 可选：Piper，用于更自然的本地 TTS 声线
 
-首次运行：
+## 快速启动
+
+安装依赖：
 
 ```bash
 npm install
+```
+
+复制环境变量示例：
+
+```bash
 cp .env.example .env.local
+```
+
+启动 Next.js：
+
+```bash
 npm run dev
 ```
 
@@ -98,194 +89,169 @@ npm run dev
 http://localhost:3000
 ```
 
-摄像头和麦克风需要浏览器安全上下文。建议在本机测试时使用 `http://localhost:3000`。如果使用局域网 IP，例如 `http://10.29.137.100:3000`，部分浏览器会禁用 `getUserMedia`，需要改用 HTTPS 或回到 localhost 测试。
+首次进入会显示配置页。填写 OpenAI 兼容 API Key、Base URL 和模型后保存，后续同一浏览器会自动进入主界面。配置保存在当前浏览器的 `localStorage`，适合本地开发和演示，不适合作为生产级密钥托管方案。
 
-首次进入页面会先显示配置页。你只需要输入 OpenAI API Key 和 Base URL，配置会保存到当前浏览器的 localStorage。下次打开同一浏览器时会自动进入主界面，无需重复输入。语音模式和模型细节在主界面顶部“设置”菜单中管理。
+## 环境变量
 
-也可以在 `.env.local` 中配置服务端备用值：
+可以在 `.env.local` 中配置服务端备用值：
 
 ```bash
-OPENAI_API_KEY=你的 OpenAI API Key
-OPENAI_CHAT_MODEL=gpt-5.5
-OPENAI_REALTIME_MODEL=gpt-realtime-2
+OPENAI_API_KEY=你的 API Key
+OPENAI_CHAT_MODEL=gpt-4o
+OPENAI_VISION_MODEL=gpt-4o
+OPENAI_REALTIME_MODEL=gpt-realtime
 OPENAI_REALTIME_VOICE=marin
 OPENAI_REALTIME_TRANSCRIPTION_MODEL=whisper-1
-OPENAI_VISION_MODEL=gpt-5.5
-LOCAL_STT_URL=http://127.0.0.1:8765/stt
-LOCAL_TTS_URL=http://127.0.0.1:8765/tts
+
 LOCAL_VOICE_URL=/api/local-voice/turn
+LOCAL_VOICE_PROXY_TARGET=http://127.0.0.1:8766
+LOCAL_STT_MODEL_PATH=models/local-voice/ggml-large-v3-turbo.bin
+LOCAL_STT_PROMPT=以下是简体中文语音对话转写，场景是 AI 视觉对话助手。请输出简体中文。
+LOCAL_WHISPER_BEAM_SIZE=5
+LOCAL_WHISPER_BEST_OF=5
+LOCAL_STT_AUDIO_FILTER=highpass=f=80,lowpass=f=8000,loudnorm
+LOCAL_TTS_ENGINE=say
 LOCAL_TTS_VOICE=
+LOCAL_PIPER_CLI=piper
+LOCAL_PIPER_MODEL_PATH=/path/to/voice.onnx
 ```
 
-如果前端配置页填写了 API Key 和 Base URL，服务端 API Route 会优先使用本次请求携带的配置；如果没有填写，则回退到 `.env.local`。配置页保存的是浏览器本地 localStorage，适合本地开发和 demo，不适合作为生产级密钥托管方案。
+前端配置页填写的 API Key、Base URL 和模型会优先随请求发送到服务端 API Route；没有前端配置时，服务端再回退到 `.env.local`。
 
-视觉分析默认使用低细节图片输入和较短输出，以控制调用成本。默认语音模式是“语音流水线”：前端用 Web Audio VAD 检测一句话开始和结束，把该 turn 的音频通过 HTTP POST 发给本地 Node 语音服务，并通过 SSE 接收 STT、LLM、TTS 和视觉 tool 事件。设置菜单里也可以切换到 OpenAI Realtime 模式；Realtime 会话通过服务端创建临时 client secret，浏览器只使用短期凭据建立 WebRTC 连接。
+## 本地语音服务
 
-本地 STT/TTS 不绑定具体模型实现。建议本机另起一个轻量服务封装 faster-whisper、whisper.cpp、Piper 或 sherpa-onnx：
+项目提供本机开发用语音服务，默认链路如下：
 
-- 本地 STT：`POST /stt`，接收 `multipart/form-data` 的 `audio` 文件字段，返回 JSON：`{"text":"识别文本"}`。
-- 本地 TTS：`POST /tts`，接收 JSON：`{"text":"待合成文本","voice":"可选声音"}`，直接返回 `audio/wav`、`audio/mpeg` 等音频；也可返回 JSON：`{"audioBase64":"...","mimeType":"audio/wav"}`。
+```text
+麦克风音频
+  -> 前端 VAD 判断一句话边界
+  -> HTTP POST 上传音频 turn
+  -> whisper.cpp 本地 STT
+  -> OpenAI 兼容 LLM 流式回复
+  -> 本地 TTS 合成音频
+  -> SSE 返回文本、音频和指标
+```
 
-仓库提供了一个本机开发用语音服务，STT 使用 whisper.cpp，TTS 默认使用 macOS `say`，也可以切换到 Piper 本地声线。推荐使用 Node 编排服务：
+安装本地语音依赖和默认模型：
 
 ```bash
 bash scripts/setup_local_voice.sh
-npm run voice:local
 ```
 
-默认会下载并使用 `ggml-large-v3-turbo.bin`，优先保证中文识别准确率。如果本机推理速度不够，可以改用更小模型：
+默认模型是 `ggml-large-v3-turbo.bin`，更偏向中文识别准确率。如果本机推理速度不够，可以选择更小模型：
 
 ```bash
 bash scripts/setup_local_voice.sh small
 LOCAL_STT_MODEL_PATH=models/local-voice/ggml-small.bin npm run voice:local
 ```
 
-可选模型包括 `base`、`small`、`medium`、`large-v3-turbo`。模型文件来自 `ggerganov/whisper.cpp`，仅下载到本地 `models/local-voice/`，不会提交到仓库。
+可选模型：
 
-本地 STT 准确率相关环境变量：
+- `base`
+- `small`
+- `medium`
+- `large-v3-turbo`
+
+启动本地语音服务：
 
 ```bash
-LOCAL_STT_PROMPT="以下是简体中文语音对话转写，场景是 AI 视觉对话助手。请输出简体中文。"
-LOCAL_WHISPER_BEAM_SIZE=5
-LOCAL_WHISPER_BEST_OF=5
-LOCAL_STT_AUDIO_FILTER="highpass=f=80,lowpass=f=8000,loudnorm"
+npm run voice:local
 ```
 
-`LOCAL_STT_PROMPT` 用于给 Whisper 补充简体中文、视觉对话和常见领域词；`LOCAL_WHISPER_BEAM_SIZE` 与 `LOCAL_WHISPER_BEST_OF` 越大通常越稳，但会增加延迟；`LOCAL_STT_AUDIO_FILTER` 会在转写前通过 ffmpeg 做轻量高通、低通和响度标准化。前端语音流水线会保留约 500ms 预录缓冲，并把静音结束阈值调到约 1 秒，减少中文开头音节被切掉和短句误识别的问题。
+健康检查：
 
-本地 TTS 声线相关环境变量：
+```bash
+curl http://127.0.0.1:8766/health
+```
+
+如果返回 `ok: true`，前端设置里的“本地语音会话地址”保持默认 `/api/local-voice/turn` 即可。Next.js 会通过同源 API 代理到本机语音服务。
+
+## TTS 声线配置
+
+默认 TTS 引擎是 macOS `say`，适合快速验证：
 
 ```bash
 LOCAL_TTS_ENGINE=say
+LOCAL_TTS_VOICE=Tingting
+```
+
+如果需要更自然的离线声线，可以使用 Piper：
+
+```bash
 LOCAL_TTS_ENGINE=piper
 LOCAL_PIPER_CLI=piper
 LOCAL_PIPER_MODEL_PATH=/path/to/voice.onnx
 ```
 
-默认 `say` 作为兜底，适合 macOS 快速演示；如果需要更自然的本地声线，可以安装 Piper 并在设置页选择“Piper 本地声线”，再把“本地 TTS 声音”填写为 `.onnx` 声线模型路径。Piper 仍是离线本地 TTS，不会把文本发到云端。
+也可以在前端顶部“设置”菜单中选择本地 TTS 引擎，并填写本地 TTS 声音或 Piper `.onnx` 模型路径。
 
-启动后访问 `http://127.0.0.1:8766/health`，如果返回 `ok: true`，即可在设置中把“本地语音会话地址”保留为默认 `/api/local-voice/turn`。前端会请求同源 Next API，Next 服务端再转发到本机语音服务，手机 HTTPS 页面也不会直接访问 `127.0.0.1:8766`。
-健康检查会返回 `ffmpeg`、`whisper-cli`、本地模型文件、macOS `say`、当前模型路径、提示词状态、解码参数和音频滤镜；如果 `ok: false`，先根据 `checks` 字段补齐本地环境。
-如果浏览器不是运行在这台 Mac 上，例如用手机或其他局域网设备访问 HTTPS 页面，仍建议使用默认 `/api/local-voice/turn`，避免混合内容和 `127.0.0.1` 指向手机本机的问题。只有当 Next 服务和本地语音服务不在同一台机器上时，才需要设置 `LOCAL_VOICE_PROXY_TARGET=http://语音服务所在机器IP:8766` 后重启 Next。
+## 手机访问与 HTTPS
 
-本地 Node 服务接口：
+摄像头和麦克风需要浏览器安全上下文：
 
-- `POST /voice/turn`：接收 `multipart/form-data` 的 `audio`、`config`、`sessionId`、`turnId`，返回 `text/event-stream`。
-- SSE 事件包括 `stt.final`、`tool.call`、`tool.result`、`metric`、`llm.delta`、`tts.start`、`tts.sentence_start`、`tts.audio`、`tts.stop`、`done`、`error`。
-- `POST /voice/tool-result`：前端收到视觉 tool 请求后补传当前压缩帧。
+- 本机开发优先使用 `http://localhost:3000`。
+- 手机访问局域网地址时，建议给 Next.js 配置 HTTPS，或使用受信任的本地证书代理。
+- 手机端不要把本地语音会话地址改成 `http://127.0.0.1:8766/voice/turn`，因为手机上的 `127.0.0.1` 指向手机本身。
+- 推荐保留默认 `/api/local-voice/turn`，让手机只访问 Next.js 同源接口，再由 Next.js 服务端代理到 Mac 上的本地语音服务。
 
-当用户通过语音询问“画面里有什么”“我面前是什么”等视觉问题时，本地 Node 服务会先根据关键词映射触发视觉 tool，前端补传当前摄像头压缩帧，服务端把图片直接并入本轮多模态流式回答，避免“先视觉摘要、再文本回答”的两次模型串行调用。
-前端“实时转写”区域会显示 RMS、录音时长、音频大小、turnId、最近 STT 文本，以及 STT、视觉等待、首 token、首音频和总耗时，用于验证麦克风、后端转写、模型流式输出和 TTS 链路是否真实生效。
-
-当前已采用的成本控制策略：
-
-- 视觉分析只上传压缩后的单帧图片，不上传连续视频流。
-- 图片默认压缩到较小宽度和质量，模型侧使用低细节模式，并限制图片 data URL 大小。
-- 视觉问题默认缓存 60 秒，视觉 tool 会优先复用 15 秒内的最近压缩帧。
-- `/api/vision` 按客户端指纹做每小时 20 次限流。
-- `/api/realtime/session` 按客户端指纹做每小时 12 次限流。
-- Realtime 系统提示限制常规回答不超过 3 句话，减少无意义长输出。
-- 前端成本面板展示视觉请求次数、缓存命中和最近图片体积，便于 demo 讲解。
-
-常用命令：
+如果 Next.js 和本地语音服务不在同一台机器上，可以设置：
 
 ```bash
+LOCAL_VOICE_PROXY_TARGET=http://语音服务所在机器IP:8766
+npm run dev
+```
+
+## 主要接口
+
+本地语音服务：
+
+- `GET /health`：检查 ffmpeg、whisper-cli、模型文件和 TTS 引擎。
+- `POST /voice/turn`：接收 `multipart/form-data` 的 `audio`、`config`、`sessionId`、`turnId`，返回 `text/event-stream`。
+- `POST /voice/tool-result`：前端收到视觉 tool 请求后回传当前压缩帧。
+
+SSE 事件：
+
+- `stt.final`：最终转写文本。
+- `tool.call`：请求前端执行视觉 tool。
+- `tool.result`：视觉 tool 回传状态。
+- `metric`：STT、视觉等待、首 token、首音频和总耗时指标。
+- `llm.delta`：模型流式文本片段。
+- `tts.start` / `tts.sentence_start` / `tts.audio` / `tts.stop`：TTS 合成与播放事件。
+- `done`：本轮完成。
+- `error`：本轮异常。
+
+## 使用流程
+
+1. 启动 Next.js：`npm run dev`。
+2. 启动本地语音服务：`npm run voice:local`。
+3. 打开 `http://localhost:3000`。
+4. 在配置页填写 API Key、Base URL 和模型并保存。
+5. 授权摄像头和麦克风。
+6. 点击“开始语音”，直接说话。
+7. 在“实时转写”区域确认 STT 文本、turnId、音频大小和耗时指标。
+8. 询问“我面前有什么”“画面里有哪些文字”等问题，确认视觉 tool 自动抓帧并生成多模态回答。
+9. 需要切换手机后置摄像头时，点击视频控制区的前后摄像头切换按钮。
+
+## 成本与延迟优化
+
+- 视觉请求只上传压缩单帧，不上传连续视频流。
+- 默认压缩图片宽度和质量，减少视觉模型输入体积。
+- 视觉 tool 会复用短时间内的最近压缩帧，避免重复抽帧。
+- 模型回复使用流式输出，前端尽早显示首 token。
+- TTS 按句触发，减少等待完整回答后再播放的延迟。
+- 本地 STT/TTS 可降低云端语音调用成本。
+- 前端状态面板展示 STT、视觉等待、首 token、首音频和总耗时，便于定位瓶颈。
+
+## 常用命令
+
+```bash
+npm run dev
+npm run voice:local
 npm run lint
 npm run typecheck
 npm run build
 ```
 
-核心功能手动验证：
+## 设计文档
 
-1. 启动应用并授权摄像头、麦克风。
-2. 首次进入时填写 OpenAI API Key、Base URL 和模型配置并保存。
-3. 默认使用“语音流水线”，点击“开始语音”后直接说话；如需 Realtime，可在设置菜单切换模式后点击“连接语音”。
-4. 先说一句普通问题，观察“实时转写”是否显示 STT 文本；等待 AI 回复后再说第二句，确认会生成新的 turn。
-5. 说出“我面前有什么”或“看一下画面里是什么”。
-6. 观察视觉 tool 是否自动抓帧并注入上下文，AI 是否结合画面回答。
-7. 在 AI 回复时继续说话，确认回复可被打断。
-8. 点击顶部“设置”，确认可以修改或清除配置。
-
-## 演示流程
-
-建议 demo 视频按以下顺序录制：
-
-1. 展示 README、设计文档和 PR 记录。
-2. 启动项目，展示进入主界面前的 OpenAI 配置页。
-3. 保存 API Key 和 Base URL，说明下次进入无需重复输入。
-4. 点击“开始”，授权摄像头和麦克风。
-5. 展示摄像头预览、麦克风电平和直播式主界面。
-6. 点击“分析画面”，展示抽帧预览和视觉分析结果。
-7. 展示默认语音流水线模式：浏览器语音识别、文本模型回复、浏览器语音播放。
-8. 语音提问“我面前有什么”，展示视觉上下文注入和 AI 回答。
-9. 在 AI 回复时继续说话，展示插话打断。
-10. 通过顶部“设置”菜单展示语音模式切换，可选“语音流水线”或“OpenAI Realtime”。
-11. 通过顶部菜单展示状态、日志和成本控制面板。
-12. 讲解成本控制策略：不传连续视频、低细节图片、60 秒缓存、API 限流和短回答。
-
-## Demo 视频
-
-最终提交前需补充可访问的视频链接：
-
-```text
-待补充：录制完成后替换为可访问的视频链接
-```
-
-视频要求：
-
-- 使用声音完整讲解。
-- 展示作品主要功能和效果。
-- 覆盖摄像头、麦克风、视觉理解、语音/文字回应、成本控制等核心模块。
-- 上传到可访问平台，例如 bilibili、云盘等。
-
-## 开发规范
-
-为了满足持续交付和学术诚信要求，本项目采用小步提交、按功能开 PR 的方式开发。
-
-1. 每个功能或修复创建独立分支。
-2. 每个 PR 只实现或修改一个清晰目标。
-3. commit 信息遵循 [.gitmessage](.gitmessage) 中的格式。
-4. PR 标题、PR 描述和 commit 说明使用中文，描述需要包含功能说明、实现思路和测试方式。
-5. 合并后 `main` 分支必须保持可运行状态。
-6. PR 不允许空描述，描述必须与实际变更一致。
-7. 所有 commit 时间戳必须落在所选批次开始与截止时间内。
-8. 不在最后一天一次性导入大量代码。
-9. 如引入第三方库或框架，必须在 README 中列明依赖并说明原创功能部分。
-10. 如复用个人过去代码，必须在 PR 描述中注明来源。
-
-## 建议分支命名
-
-- `feature/<name>`：新增功能。
-- `fix/<name>`：问题修复。
-- `docs/<name>`：文档更新。
-- `chore/<name>`：工程配置或维护工作。
-
-## 建议 commit 格式
-
-```text
-type(scope): summary
-```
-
-示例：
-
-```text
-docs(readme): 补充最终演示与启动说明
-feat(camera): 增加摄像头预览采集
-feat(audio): 接入实时语音输入
-fix(turn): 修复回复打断状态
-```
-
-## 参考规则
-
-从 `ref/` 中提炼出的项目要求和提交规范见 [docs/requirements.md](docs/requirements.md)。
-
-## 最终提交检查清单
-
-- [ ] 仓库在评审阶段可公开访问或评委可访问。
-- [x] 所有功能均通过连续 PR 和 commit 记录体现。
-- [x] 所有 PR 标题和描述完整，包含功能描述、实现思路和测试方式。
-- [x] `main` 分支可安装、启动和复现 demo。
-- [x] README 包含启动方式、依赖说明、原创功能边界和 demo 视频占位。
-- [x] [docs/design.md](docs/design.md) 已补全用户故事和成本控制策略。
-- [ ] demo 视频可播放，并覆盖核心模块。
-- [x] 没有未说明来源的第三方代码或个人历史代码。
+更完整的架构、用户故事和成本控制说明见 [docs/design.md](docs/design.md)。
