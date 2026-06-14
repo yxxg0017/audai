@@ -73,7 +73,7 @@ export function getOpenAIRequestConfig(body: ApiConfigBody) {
     localVoiceUrl:
       readString(openai.localVoiceUrl) ||
       process.env.LOCAL_VOICE_URL?.trim() ||
-      "http://127.0.0.1:8766/voice/turn",
+      "/api/local-voice/turn",
     sttProvider: readSttProvider(openai.sttProvider),
     ttsProvider: readTtsProvider(openai.ttsProvider),
     visionModel:

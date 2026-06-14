@@ -113,7 +113,7 @@ OPENAI_REALTIME_TRANSCRIPTION_MODEL=whisper-1
 OPENAI_VISION_MODEL=gpt-5.5
 LOCAL_STT_URL=http://127.0.0.1:8765/stt
 LOCAL_TTS_URL=http://127.0.0.1:8765/tts
-LOCAL_VOICE_URL=http://127.0.0.1:8766/voice/turn
+LOCAL_VOICE_URL=/api/local-voice/turn
 LOCAL_TTS_VOICE=
 ```
 
@@ -164,9 +164,9 @@ LOCAL_PIPER_MODEL_PATH=/path/to/voice.onnx
 
 默认 `say` 作为兜底，适合 macOS 快速演示；如果需要更自然的本地声线，可以安装 Piper 并在设置页选择“Piper 本地声线”，再把“本地 TTS 声音”填写为 `.onnx` 声线模型路径。Piper 仍是离线本地 TTS，不会把文本发到云端。
 
-启动后访问 `http://127.0.0.1:8766/health`，如果返回 `ok: true`，即可在设置中把“本地语音会话地址”设为 `http://127.0.0.1:8766/voice/turn`。
+启动后访问 `http://127.0.0.1:8766/health`，如果返回 `ok: true`，即可在设置中把“本地语音会话地址”保留为默认 `/api/local-voice/turn`。前端会请求同源 Next API，Next 服务端再转发到本机语音服务，手机 HTTPS 页面也不会直接访问 `127.0.0.1:8766`。
 健康检查会返回 `ffmpeg`、`whisper-cli`、本地模型文件、macOS `say`、当前模型路径、提示词状态、解码参数和音频滤镜；如果 `ok: false`，先根据 `checks` 字段补齐本地环境。
-如果浏览器不是运行在这台 Mac 上，例如用手机或其他局域网设备访问 `http://10.x.x.x:3000`，不要填写 `127.0.0.1`，因为它指向浏览器所在设备本身。此时需要用 `LOCAL_VOICE_HOST=0.0.0.0 npm run voice:local` 启动服务，并把“本地语音会话地址”改为 `http://这台Mac的局域网IP:8766/voice/turn`。
+如果浏览器不是运行在这台 Mac 上，例如用手机或其他局域网设备访问 HTTPS 页面，仍建议使用默认 `/api/local-voice/turn`，避免混合内容和 `127.0.0.1` 指向手机本机的问题。只有当 Next 服务和本地语音服务不在同一台机器上时，才需要设置 `LOCAL_VOICE_PROXY_TARGET=http://语音服务所在机器IP:8766` 后重启 Next。
 
 本地 Node 服务接口：
 

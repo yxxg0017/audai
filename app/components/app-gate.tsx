@@ -312,9 +312,8 @@ function ConfigForm({ config, mode, onCancel, onClear, onSave }: ConfigFormProps
               <input
                 defaultValue={config.localVoiceUrl}
                 name="localVoiceUrl"
-                placeholder="http://127.0.0.1:8766/voice/turn"
+                placeholder="/api/local-voice/turn"
                 ref={localVoiceUrlRef}
-                type="url"
               />
             </label>
             <label>

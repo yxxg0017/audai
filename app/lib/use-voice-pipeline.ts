@@ -106,10 +106,18 @@ function extractSpeakableSegments(text: string) {
 }
 
 function toToolResultUrl(localVoiceUrl: string) {
+  if (localVoiceUrl.endsWith("/api/local-voice/turn")) {
+    return localVoiceUrl.replace(/\/turn\/?$/, "/tool-result");
+  }
+
   return localVoiceUrl.replace(/\/voice\/turn\/?$/, "/voice/tool-result");
 }
 
 function toHealthUrl(localVoiceUrl: string) {
+  if (localVoiceUrl.endsWith("/api/local-voice/turn")) {
+    return localVoiceUrl.replace(/\/turn\/?$/, "/health");
+  }
+
   try {
     const url = new URL(localVoiceUrl);
     url.pathname = "/health";

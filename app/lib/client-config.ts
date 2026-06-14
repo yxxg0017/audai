@@ -29,7 +29,7 @@ export const defaultClientConfig: ClientConfig = {
   localTtsEngine: "say",
   localTtsUrl: "http://127.0.0.1:8765/tts",
   localTtsVoice: "",
-  localVoiceUrl: "http://127.0.0.1:8766/voice/turn",
+  localVoiceUrl: "/api/local-voice/turn",
   realtimeModel: "gpt-realtime-2",
   realtimeVoice: "marin",
   realtimeTranscriptionModel: "whisper-1",
@@ -37,12 +37,26 @@ export const defaultClientConfig: ClientConfig = {
 };
 
 const storageKey = "audai.client-config.v1";
+const legacyLocalVoiceUrls = new Set([
+  "http://127.0.0.1:8766/voice/turn",
+  "http://localhost:8766/voice/turn",
+]);
 
 function sanitizeBaseUrl(baseUrl: string) {
   const trimmedUrl = baseUrl.trim().replace(/\/+$/, "");
 
   if (!trimmedUrl) {
     return defaultClientConfig.baseUrl;
+  }
+
+  return trimmedUrl;
+}
+
+function sanitizeLocalVoiceUrl(localVoiceUrl?: string) {
+  const trimmedUrl = localVoiceUrl?.trim() ?? "";
+
+  if (!trimmedUrl || legacyLocalVoiceUrls.has(trimmedUrl)) {
+    return defaultClientConfig.localVoiceUrl;
   }
 
   return trimmedUrl;
@@ -65,8 +79,7 @@ export function normalizeClientConfig(config: Partial<ClientConfig>): ClientConf
     localTtsUrl:
       config.localTtsUrl?.trim() || defaultClientConfig.localTtsUrl,
     localTtsVoice: config.localTtsVoice?.trim() ?? "",
-    localVoiceUrl:
-      config.localVoiceUrl?.trim() || defaultClientConfig.localVoiceUrl,
+    localVoiceUrl: sanitizeLocalVoiceUrl(config.localVoiceUrl),
     realtimeModel:
       config.realtimeModel?.trim() || defaultClientConfig.realtimeModel,
     realtimeVoice:
